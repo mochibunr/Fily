@@ -51,6 +51,11 @@ list that stays fast on directories of any size.
 
 **Interface**
 
+Deliberately minimal: the window is a toolbar, a list, and a status bar. Nothing
+is on screen unless it earns its place — search collapses to a bare magnifier
+until you use it, sorting lives in one toolbar menu, and the item/selection count
+lives in the status bar rather than a row of its own.
+
 - Command palette (`Ctrl+K`) and a complete keyboard map.
 - 9 themes: light, dark, Dracula, Catppuccin Mocha, Catppuccin Latte, Nord,
   Gruvbox, Tokyo Night, One Dark.
@@ -60,6 +65,24 @@ list that stays fast on directories of any size.
   full `prefers-reduced-motion` support.
 - Context menus that adapt to what is selected (file, folder, or a mix).
 - Settings for themes, toolbar buttons, behavior, sidebar sections, and sizes.
+
+**Performance**
+
+Built to stay cheap on very large directories. On a 6,000-entry folder it holds
+60 rows in the DOM, ~815 nodes total, ~5.6 MB of JS heap, and does **zero** DOM
+work while idle.
+
+- The list is virtualized: only about a screenful of rows exists, regardless of
+  directory size, and rows are memoized so scrolling re-renders only what changed.
+- Image thumbnails decode **only for rows currently on screen**, not for the
+  scroll buffer — measured at 21 decodes for 19 visible rows, and 331 total
+  after scrolling past 353 rows (rather than one set per scroll position).
+- Thumbnails are downscaled in the webview before being cached, so a folder of
+  large photos costs kilobytes per item instead of megabytes of base64.
+- Scroll handling is `requestAnimationFrame`-throttled, and the grid renders in
+  batches with bounded caches for thumbnails and scroll positions.
+- Search is bounded (depth, result count, query length) and superseded searches
+  abort early instead of finishing work nobody reads.
 
 **Safety**
 

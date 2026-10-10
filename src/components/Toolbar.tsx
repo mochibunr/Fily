@@ -1,16 +1,26 @@
 import {
-  ArrowLeft, ArrowRight, ArrowUp, Columns2, Eye, EyeOff, FolderPlus, FilePlus,
-  LayoutGrid, List, Moon, PanelRight, RefreshCw, Search, Sun, Terminal, X,
+  ArrowDownWideNarrow, ArrowLeft, ArrowRight, ArrowUp, Columns2, Eye, EyeOff,
+  FolderPlus, FilePlus, LayoutGrid, List, Moon, PanelRight, RefreshCw, Search,
+  Sun, Terminal, X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import type { SortKey } from "../types";
 import { fsApi } from "../api/fs";
 import { useApp } from "../store/app";
 import { baseName, splitPath } from "../utils/format";
+import ContextMenu from "./ContextMenu";
 
 const FILTER_HINTS = [
   { chip: "type:pdf", hint: "PDFs, or image/audio/video/code" },
   { chip: "ext:png", hint: "Any extension, comma separated" },
   { chip: "size:>10mb", hint: "Bigger than — < works too" },
+];
+
+const SORTS: { k: SortKey; label: string }[] = [
+  { k: "name", label: "Name" },
+  { k: "size", label: "Size" },
+  { k: "modified", label: "Modified" },
+  { k: "type", label: "Type" },
 ];
 
 export default function Toolbar({ pane, onSearch }: { pane: number; onSearch(q: string): void }) {
@@ -20,7 +30,9 @@ export default function Toolbar({ pane, onSearch }: { pane: number; onSearch(q: 
   const [focused, setFocused] = useState(false);
   const [locEditing, setLocEditing] = useState(false);
   const [locVal, setLocVal] = useState("");
-  const boxRef = useRef<HTMLDivElement>(null);
+  const [sortOpen, setSortOpen] = useState(false);
+  const [sortPos, setSortPos] = useState({ x: 0, y: 0 });
+  const sortRef = useRef<HTMLButtonElement>(null);
   // Ctrl+L (or the palette) swaps breadcrumbs for a path field.
   useEffect(() => {
     const onEdit = (e: Event) => {
@@ -143,7 +155,9 @@ export default function Toolbar({ pane, onSearch }: { pane: number; onSearch(q: 
       </nav>
       )}
 
-      <div ref={boxRef} className={`search-box${focused ? " open" : ""}${q ? " has-query" : ""}`}>
+      {/* Collapsed to just the magnifier until focused or holding a query, so
+          the toolbar stays quiet until search is actually wanted. */}
+      <div className={`search-box${focused ? " open" : ""}${q ? " has-query" : ""}`}>
         <Search size={14} />
         <input
           value={q}
@@ -181,6 +195,46 @@ export default function Toolbar({ pane, onSearch }: { pane: number; onSearch(q: 
           <LayoutGrid size={15} />
         </button>
       </div>
+
+      {/* Sorting and the item count used to occupy a whole row of their own,
+          duplicating what the status bar already shows. One control here. */}
+      <button
+        ref={sortRef}
+        className="icon-btn"
+        aria-label="Sort and order"
+        aria-haspopup="menu"
+        title={`Sorted by ${SORTS.find((s) => s.k === app.prefs.sortKey)?.label ?? "Name"}, ${app.prefs.sortDesc ? "descending" : "ascending"}`}
+        onClick={() => {
+          const r = sortRef.current?.getBoundingClientRect();
+          if (r) setSortPos({ x: r.left, y: r.bottom + 4 });
+          setSortOpen((v) => !v);
+        }}
+      >
+        <ArrowDownWideNarrow size={15} className={app.prefs.sortDesc ? "flip" : ""} />
+      </button>
+      {sortOpen && (
+        <ContextMenu
+          x={sortPos.x}
+          y={sortPos.y}
+          onClose={() => setSortOpen(false)}
+          sections={[
+            {
+              title: "Sort by",
+              items: SORTS.map((s) => ({
+                label: `${s.label}${app.prefs.sortKey === s.k ? " ✓" : ""}`,
+                action: () => app.setPrefs({ sortKey: s.k }),
+              })),
+            },
+            {
+              title: "Order",
+              items: [
+                { label: `Ascending${!app.prefs.sortDesc ? " ✓" : ""}`, action: () => app.setPrefs({ sortDesc: false }) },
+                { label: `Descending${app.prefs.sortDesc ? " ✓" : ""}`, action: () => app.setPrefs({ sortDesc: true }) },
+              ],
+            },
+          ]}
+        />
+      )}
 
       {tb.dual && (
         <button className={`icon-btn dual-toggle${app.dual ? " on" : ""}`} onClick={() => app.setDual(!app.dual)} aria-label="Dual pane" title="Dual pane">

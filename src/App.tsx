@@ -1,4 +1,4 @@
-import { ArrowDownWideNarrow, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open as pickDialog } from "@tauri-apps/plugin-dialog";
 import { fsApi, isTauri } from "./api/fs";
@@ -15,7 +15,7 @@ import Sidebar from "./components/Sidebar";
 import Toolbar from "./components/Toolbar";
 import { buildMenu, doPaste } from "./components/ops";
 import { AppProvider, useApp } from "./store/app";
-import type { FileEntry, SortKey } from "./types";
+import type { FileEntry } from "./types";
 import { baseName } from "./utils/format";
 import { toSearchOptions } from "./utils/search";
 
@@ -44,68 +44,6 @@ function TabsBar() {
         onClick={() => openTab(panes[0]?.path ?? "/")}>
         +
       </button>    </div>
-  );
-}
-
-function ActionRow({ pane }: { pane: number }) {
-  const app = useApp();
-  const p = app.panes[pane];
-  const [sortOpen, setSortOpen] = useState(false);
-  const sortBtnRef = useRef<HTMLButtonElement>(null);
-  const [sortPos, setSortPos] = useState({ x: 0, y: 0 });
-  if (!p) return null;
-  const sorts: { k: SortKey; label: string }[] = [
-    { k: "name", label: "Name" },
-    { k: "size", label: "Size" },
-    { k: "modified", label: "Modified" },
-    { k: "type", label: "Type" },
-  ];
-  const current = sorts.find((s) => s.k === app.prefs.sortKey)?.label ?? "Name";
-  return (
-    <div className="action-row">
-      <ArrowDownWideNarrow size={14} />
-      <button
-        ref={sortBtnRef}
-        className="mini-btn"
-        aria-label="Sort by"
-        aria-haspopup="menu"
-        onClick={() => {
-          const r = sortBtnRef.current?.getBoundingClientRect();
-          if (r) setSortPos({ x: r.left, y: r.bottom + 4 });
-          setSortOpen((v) => !v);
-        }}
-      >
-        {current} ▾
-      </button>
-      {sortOpen && (
-        <ContextMenu
-          x={sortPos.x}
-          y={sortPos.y}
-          onClose={() => setSortOpen(false)}
-          sections={[{
-            title: "Sort by",
-            items: sorts.map((s) => ({
-              label: `${s.label}${app.prefs.sortKey === s.k ? " ✓" : ""}`,
-              action: () => app.setPrefs({ sortKey: s.k }),
-            })),
-          }]}
-        />
-      )}
-      <button className="mini-btn" onClick={() => app.setPrefs({ sortDesc: !app.prefs.sortDesc })} aria-label="Toggle sort direction">
-        {app.prefs.sortDesc ? "Z → A" : "A → Z"}
-      </button>
-      {app.clipboard && pane === 0 && (
-        <button
-          className="mini-btn primary"
-          onClick={() => void doPaste(app, app.clipboard!.mode, app.clipboard!.paths, p.path)}
-        >
-          Paste {app.clipboard.paths.length} ({app.clipboard.mode})
-        </button>
-      )}
-      <span className="selection-note">
-        {p.selection.length > 0 ? `${p.selection.length} selected` : `${p.entries.length} items`}
-      </span>
-    </div>
   );
 }
 
@@ -333,7 +271,6 @@ function Shell() {
       <div key={pane} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", borderRight: pane === 0 && app.dual ? "1px solid var(--separator)" : undefined }}
         onMouseDown={() => app.setFocusPane(pane)}>
         <Toolbar pane={pane} onSearch={(q) => runSearch(pane, q)} />
-        <ActionRow pane={pane} />
         <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
           <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
             <FileView

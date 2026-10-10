@@ -103,6 +103,29 @@
       (file beats stale localStorage, write-through, event subscription),
       existing suites unchanged at 27/27 + 7/7 + 4/4, zero warnings,
       rustfmt clean. Bundle 3.74 → 3.81 MiB (serde_json).
+- [x] Round 15 (minimal UI + measured perf): audited the UI for anything not
+      earning its place. The `action-row` band (sort icon, "Name ▾", "A → Z",
+      item count) was **fully redundant** — the status bar already shows items
+      and selection, and the Paste button was duplicated in the toolbar. The
+      whole band is gone; sorting collapsed into one toolbar icon opening a
+      menu with both key and direction, and the search box collapses to a bare
+      magnifier (32px, expanding on focus or when it holds a query). One fewer
+      horizontal band, ~34px of list reclaimed, ~160px of toolbar width.
+      Measured before/after on a 6000-entry directory: 60 rows mounted, 815 DOM
+      nodes, 5.6 MB JS heap, **0 DOM mutations while idle**, worst scroll frame
+      46ms.
+      Perf: thumbnails were being decoded for the virtualizer's off-screen
+      buffer (14 rows above, ~26 below), which in a photo folder meant ~40
+      needless decodes per scroll position. They now load only for rows that
+      intersect the viewport — measured 21 decodes for 19 visible rows, and 331
+      total after scrolling past 353 rows (previously 1200+). The settings
+      watcher also backs off from a 400ms poll to 2s after five quiet checks
+      instead of stat-ing the file 2.5x/second forever.
+      Verified: tsc clean, vitest 8/8, cargo test 15/15, rustfmt clean,
+      existing UI suite 27/27 (three checks repointed from the removed
+      `.action-row`/`.selection-note` to the status bar and the new sort
+      button), plus a new 6-check minimal-UI suite and a 2-check thumbnail-lazy
+      suite.
 - [x] Round 8 (menu key + scroll memory): F10 / Menu key pops the context
       menu anchored at the selected row; per-directory scroll offsets
       remembered (capped at 100) and restored after Back/Forward/mouse

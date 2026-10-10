@@ -216,10 +216,17 @@ export default function FileView({ pane, searchQuery, searchResults, searching, 
   // scrolls (sentinel observer). Keeps huge folders fast and lean.
   const gridShown = app.prefs.mode === "grid" ? visible.slice(0, gridLimit) : visible;
 
-  // Thumbnails load only for rows that are actually mounted — never for the
-  // whole directory. `mountedKey` is a cheap stand-in for the mounted row set
-  // so scrolling retargets the loader without re-running it every frame.
-  const mounted = app.prefs.mode === "grid" ? gridShown : listWindow.slice;
+  // Thumbnails load only for rows the user can actually see. The virtualizer
+  // deliberately over-mounts (14 rows of lead, ~40 of trail) so fast scrolling
+  // never hits an empty gap, but decoding images for those off-screen rows is
+  // pure waste — in a folder of photos that was ~26 needless decodes per scroll
+  // position. Grid keeps its batch (cells are large and already capped).
+  const firstVis = Math.max(0, Math.floor(scrollTop / rowPx));
+  const lastVis = Math.min(base.length, Math.ceil((scrollTop + viewportH) / rowPx) + 1);
+  const mounted =
+    app.prefs.mode === "grid"
+      ? gridShown
+      : base.slice(firstVis, lastVis);
   const mountedKey = `${app.prefs.mode}:${mounted.length}:${mounted[0]?.path ?? ""}:${mounted[mounted.length - 1]?.path ?? ""}`;
 
   useEffect(() => {

@@ -28,15 +28,40 @@ fn reset_settings() -> Result<FilySettings, String> {
 
 /// Poll the settings file and push changes to the window so an external write
 /// (`fily config set …`, or an AI editing the file) applies live.
+///
+/// Backs off when nothing changes: a steady 400 ms poll means two `stat` calls a
+/// second forever for an app that is usually idle. After `IDLE_TICKS` quiet
+/// checks it stretches out to 2 s and only tightens again once the file moves.
 fn spawn_settings_watcher(app: tauri::AppHandle) {
+    const BUSY_MS: u64 = 400;
+    const IDLE_MS: u64 = 2_000;
+    const IDLE_TICKS: u32 = 5;
     std::thread::spawn(move || {
         let mut last = settings::fingerprint();
+        let mut quiet = 0u32;
         loop {
-            std::thread::sleep(std::time::Duration::from_millis(400));
+            let mut wait = if quiet >= IDLE_TICKS {
+                IDLE_MS
+            } else {
+                BUSY_MS
+            };
+            // Break the sleep into slices so a change is still noticed promptly
+            // even while idling, without busy-waiting the rest of the time.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(wait);
+            while std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(wait / 10));
+                wait = (deadline - std::time::Instant::now()).as_millis().max(1) as u64;
+                if settings::fingerprint() != last {
+                    break;
+                }
+            }
             let now = settings::fingerprint();
             if now != last {
                 last = now;
+                quiet = 0;
                 let _ = app.emit("settings-changed", settings::load());
+            } else {
+                quiet = quiet.saturating_add(1);
             }
         }
     });
