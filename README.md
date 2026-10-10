@@ -144,17 +144,37 @@ sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
   libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 ```
 
-### Install and build
+### Install
+
+Copy and paste this into a terminal. It checks your prerequisites, builds from
+source, installs the binary, and sets up a launcher and icon:
 
 ```sh
-git clone <this-repo>
-cd fily
+curl -fsSL https://raw.githubusercontent.com/mochibunr/Fily/main/install.sh | bash
+```
+
+If `webkit2gtk-4.1` is missing, the script tells you the exact package name for
+your distro and stops — nothing is installed half-way. It is safe to re-run: it
+rebuilds and overwrites its own files, and touches nothing else.
+
+Already cloned the repo? Just run `./install.sh`.
+
+### Build manually
+
+```sh
+git clone https://github.com/mochibunr/Fily.git
+cd Fily
 npm install
 npm run tauri build
 ```
 
 Bundles are written to `src-tauri/target/release/bundle/` as `.deb`, `.rpm`, and
-`.AppImage` (the deb and rpm are each about 3.7 MB).
+`.AppImage` (the deb and rpm are each about 3.8 MB). Or just run the built
+binary directly — no install needed:
+
+```sh
+./src-tauri/target/release/fily
+```
 
 ### Development
 
