@@ -63,7 +63,9 @@ Runtime deps are deliberately few: `@tauri-apps/api`, `@tauri-apps/plugin-dialog
 | Type check | `npx tsc --noEmit` | clean, no output **[V]** |
 | Production build | `npm run build` | ✓ built in ~1.4s; JS 277.79 kB (gzip 82.22), CSS 32.72 kB (gzip 7.22) **[V]** |
 | Unit tests (TS) | `npx vitest run` | **8 passed / 8** **[V]** |
-| Unit tests (Rust) | `rustc --edition 2021 --test src-tauri/src/logic.rs -o /tmp/logic_test && /tmp/logic_test` | **6 passed / 6** **[V]** |
+| Unit tests (Rust, full) | `cargo test --manifest-path src-tauri/Cargo.toml` | **15 passed / 15** **[V]** |
+| Unit tests (Rust, no GUI deps) | `rustc --edition 2021 --test src-tauri/src/logic.rs -o /tmp/logic_test && /tmp/logic_test` | **6 passed / 6** **[V]** |
+| Config suite | `node /tmp/opencode/fily/configtest.mjs …` | **4/4** **[V]** |
 | Rust formatting | `rustfmt --check --edition 2021 src-tauri/src/*.rs` | exit 0, clean **[V]** |
 | Functional UI suite | `node /tmp/opencode/fily/test-ui.mjs http://127.0.0.1:1429/ /tmp/opencode/fily/ui` | **27/27** **[V]** |
 | Scale/virtualization suite | `node /tmp/opencode/fily/gaptest.mjs …` | **7/7** **[V]** |
@@ -169,7 +171,9 @@ flowchart TD
 | Path | Responsibility |
 |---|---|
 | [`src/store/app.tsx`](src/store/app.tsx) | Single React context store. Pane/tab state, history, prefs, clipboard, toasts, and **all** `localStorage` persistence. Read this before adding any setting. |
-| [`src/api/fs.ts`](src/api/fs.ts) | Typed wrapper over Tauri `invoke`; converts thrown errors into friendly messages. All FS access funnels through here. |
+| [`src/api/fs.ts`](src/api/fs.ts) | Typed wrapper over Tauri `invoke`; converts thrown errors into friendly messages. All FS access funnels through here. Also exposes `getSettings`/`setSettings`/`resetSettings` and `onSettingsChanged`. |
+| [`src-tauri/src/settings.rs`](src-tauri/src/settings.rs) | Authoritative settings store: JSON file, clamping, validation, atomic write, watcher fingerprint. |
+| [`src-tauri/src/cli.rs`](src-tauri/src/cli.rs) | `fily config …` subcommands. Parsed before the Tauri builder so config never opens a window. |
 | [`src/components/FileView.tsx`](src/components/FileView.tsx) | The heaviest component (633 lines). Virtualized list, incremental grid, scroll memory, keyboard nav, inline rename, thumbnails. |
 | [`src/components/ops.tsx`](src/components/ops.tsx) | Context-menu builder. Items and icons vary by selection kind (file vs folder vs mixed). |
 | [`src/components/Glyph.tsx`](src/components/Glyph.tsx) | Authored **filled** SVG icon set. Exists because Lucide is stroke-only and could not be filled. |
@@ -200,7 +204,9 @@ margins, because sibling margins collapse and break the virtualizer's arithmetic
 
 ### Persistence keys (all `localStorage`) **[V]**
 
-`fily.theme`, `fily.prefs` (per-directory), `fily.hidden`, `fily.listScale`,
+Since Round 14 the **authoritative** store is `~/.config/fily/settings.json`; `localStorage` remains a fast boot cache and is migrated up on first run.
+
+legacy/other `localStorage` keys: `fily.theme`, `fily.prefs` (per-directory), `fily.hidden`, `fily.listScale`,
 `fily.uiZoom`, `fily.sideWidth`, `fily.toolbar`, `fily.side.devices`,
 `fily.side.places`, `fily.bookmarks`, `fily.devices`(served). Adding a setting
 means touching all three places: load, set, and the reset-all array.
@@ -252,9 +258,14 @@ npm test             # vitest run  (8 tests)
 
 npx tauri build      # release bundles into src-tauri/target/release/bundle/
 
-# Rust logic tests — no GTK/WebKit needed, runs anywhere:
-rustc --edition 2021 --test src-tauri/src/logic.rs -o /tmp/logic_test && /tmp/logic_test
+# Rust tests
+cargo test --manifest-path src-tauri/Cargo.toml                       # 15, uses the crate's deps
+rustc --edition 2021 --test src-tauri/src/logic.rs -o /tmp/logic_test && /tmp/logic_test  # 6, no GUI deps
 rustfmt --check --edition 2021 src-tauri/src/*.rs
+
+# Configure without the GUI (runs before the window opens; applies live)
+./src-tauri/target/release/fily config list
+./src-tauri/target/release/fily config set theme=nord uiZoom=1.2
 ```
 
 ### Frontend-only functional testing (harness)
@@ -268,6 +279,7 @@ python3 -m http.server 1429 --directory dist &     # already running (pid 112111
 node /tmp/opencode/fily/test-ui.mjs  "http://127.0.0.1:1429/" /tmp/opencode/fily/ui
 node /tmp/opencode/fily/gaptest.mjs "http://127.0.0.1:1429/" /tmp/opencode/fily/gap.png
 node /tmp/opencode/fily/thumbtest.mjs "http://127.0.0.1:1429/" /tmp/opencode/fily/th.png
+node /tmp/opencode/fily/configtest.mjs "http://127.0.0.1:1429/" /tmp/opencode/fily/cfg.png
 ```
 
 They drive Chromium over raw CDP with a **stubbed IPC bridge**
@@ -388,6 +400,38 @@ Recursive filename search, debounced, bounded. Superseded scans abort via an
 atomic generation counter; 300k walk budget; 200-char clamp; max 5,000 results,
 depth 8 **[V]**.
 
+### CLI / external configuration — Complete (verified, with one gap)
+
+Added Round 14 so an AI agent or script can configure the app. See
+[`src-tauri/src/settings.rs`](src-tauri/src/settings.rs) and
+[`src-tauri/src/cli.rs`](src-tauri/src/cli.rs).
+
+- `fily config list|get|set|reset|path`, parsed in `main()` **before** the Tauri
+  builder so a config command never opens a window.
+- Store is `~/.config/fily/settings.json`; `FILY_CONFIG_DIR` overrides it.
+  Writes are atomic (temp + rename) so a watcher never sees a half-written file.
+- Every field is clamped on write *and* re-clamped on read, and unknown keys are
+  rejected rather than ignored — a typo fails loudly instead of silently
+  no-opping.
+- A background thread polls a (mtime, len) fingerprint every 400 ms and emits
+  `settings-changed`; `store/app.tsx` subscribes and applies without restart.
+- The store also writes through on every in-app change, so the file is always
+  current no matter which side made the change.
+- On first run the file does not exist, so existing `localStorage` values are
+  migrated up and nothing is lost.
+
+**Verified [V]:** 15/15 Rust tests (round-trip persistence, corrupt-file
+fallback, clamping, CLI typing), 4/4 config suite (file beats stale
+`localStorage`, write-through payload, correct event name subscribed), CLI error
+messages and clamping exercised by hand against an isolated `HOME`.
+
+> **Known gap [U]:** the *live* re-theme of a real running window was **not**
+> visually confirmed. The binary maps no X window under Xvfb without a window
+> manager (`xdotool search` returns nothing), so screenshots of the real app are
+> impossible in this environment. The Rust watcher, the event emission, the
+> subscription, and the apply path are each verified separately; only the
+> framework-provided hop between the Rust emitter and the webview is untested.
+
 ### Not implemented (deliberately, per `RESEARCH.md`)
 
 - Indexed / full-text search — filename search only, **by design**.
@@ -453,16 +497,15 @@ depth 8 **[V]**.
 - *Note:* `origin` is already configured to `https://github.com/mochibunr/Fily.git`,
   so a mistimed `git push -u` is a one-command mistake.
 
-**6. Fix the remaining stale entry in `PROGRESS.md`.**
-- *Outcome:* the work log matches what the code does.
-- *Why:* `README.md` was **rewritten and is now accurate** (205 lines, each claim
-  verified against source). But `PROGRESS.md` Round 11 still claims *"Settings →
-  File icons slider (14–30px)"* with Ctrl+Wheel changing icons by 1px — superseded
-  by Round 12, which replaced that with the "File list size" slider scaling text
-  and icons together. No `iconSize` symbol remains anywhere in `src/` **[V]**.
-- *Inspect:* `PROGRESS.md` Round 11 (lines ~63-65) against Round 12.
-- *Accept:* Round 11 no longer describes removed behaviour; the settings sections
-  read `App size` and `File list size` (per `SettingsModal.tsx` headings).
+**6. Confirm live CLI re-configuration on a real desktop session.**
+- *Outcome:* `fily config set theme=nord` visibly re-themes an already-open window.
+- *Why:* every link is verified separately (watcher, emitter, subscription,
+  apply), but the binary maps **no X window** under Xvfb without a WM
+  (`xdotool search` returns nothing), so the end-to-end visual hop is untested **[V]
+  — see the Known gap note in §E**.
+- *Inspect:* `src-tauri/src/main.rs` watcher, `store/app.tsx` subscription.
+- *Accept:* user runs `fily config set theme=nord` with Fily open and reports the
+  window changed without a restart.
 
 **7. Confirm window drag/minimize on a real desktop session.**
 - *Outcome:* a user-confirmed answer.

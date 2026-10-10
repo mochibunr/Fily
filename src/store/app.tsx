@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import type { DirViewPrefs, FileEntry, SortKey, TabState, Theme } from "../types";
-import { fsApi } from "../api/fs";
+import type { DirViewPrefs, FileEntry, FilySettings, SortKey, TabState, Theme } from "../types";
+import { fsApi, onSettingsChanged } from "../api/fs";
 
 export interface Toast {
   id: number;
@@ -153,12 +153,12 @@ function emptyPane(path: string): Pane {
 }
 
 export function AppProvider({ children, initialPath }: { children: React.ReactNode; initialPath: string }) {
-  const [theme, setTheme] = useState<Theme>(() => {
+  const [theme, setThemeState] = useState<Theme>(() => {
     const saved = localStorage.getItem("fily.theme");
     const known = ["light", "dark", "dracula", "catppuccin-mocha", "catppuccin-latte", "nord", "gruvbox", "tokyo-night", "one-dark"];
     return (saved && known.includes(saved) ? saved : "dark") as Theme;
   });
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsedState] = useState(false);
   const [previewVisible, setPreviewVisible] = useState(true);
   const [dual, setDual] = useState(false);
   const [focusPane, setFocusPane] = useState(0);
@@ -192,6 +192,105 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
   const panesRef = useRef(panes);
   panesRef.current = panes;
   const loadTokens = useRef<Record<number, number>>({});
+  // True while applying settings that came FROM the backend, so the write-through
+  // effects don't echo them straight back and start an update loop.
+  const applyingRemote = useRef(false);
+
+  // --- Settings file: the authoritative, externally-writable store ---------
+  // On boot the JSON file wins over localStorage, so a value set by
+  // `fily config …` or an AI agent is what the user sees. When no file exists
+  // yet (first run / upgrade), the existing localStorage values are migrated up
+  // so nobody loses their preferences.
+  const applySettings = useCallback((s: FilySettings) => {
+    applyingRemote.current = true;
+    setThemeState(s.theme);
+    setSidebarCollapsedState(s.sidebarCollapsed);
+    setShowHiddenState(s.showHidden);
+    setListScaleState(s.listScale);
+    setUiZoomState(s.uiZoom);
+    setSideWidthState(s.sideWidth);
+    setShowDevicesState(s.showDevices);
+    setShowPlacesState(s.showPlaces);
+    setToolbarBtns((t) => ({ ...t, ...s.toolbar }));
+  }, []);
+
+  useEffect(() => {
+    let dead = false;
+    void (async () => {
+      try {
+        const { settings, exists } = await fsApi.getSettings();
+        if (dead) return;
+        if (exists) {
+          applySettings(settings);
+        } else {
+          // Migrate whatever the webview already had.
+          await fsApi.setSettings({
+            theme,
+            uiZoom,
+            listScale,
+            showHidden,
+            sideWidth,
+            sidebarCollapsed,
+            showDevices,
+            showPlaces,
+            toolbar: toolbarBtns,
+          });
+        }
+      } catch {
+        /* file backend unavailable (browser preview) — localStorage still works */
+      }
+    })();
+    // Boot only. Depends on the empty-mount state by design.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Live-apply settings changed outside the app (CLI, AI agent, second window).
+  useEffect(() => {
+    let un: (() => void) | undefined;
+    let dead = false;
+    void onSettingsChanged((s) => {
+      if (!dead) applySettings(s);
+    }).then((f) => {
+      if (dead) f();
+      else un = f;
+    });
+    return () => {
+      dead = true;
+      un?.();
+    };
+  }, [applySettings]);
+
+  // Write through to the settings file so external tools always see the
+  // current state, whichever side changed it.
+  useEffect(() => {
+    if (applyingRemote.current) {
+      applyingRemote.current = false;
+      return;
+    }
+    void fsApi
+      .setSettings({
+        theme,
+        uiZoom,
+        listScale,
+        showHidden,
+        sideWidth,
+        sidebarCollapsed,
+        showDevices,
+        showPlaces,
+        toolbar: toolbarBtns,
+      })
+      .catch(() => {});
+  }, [
+    theme,
+    uiZoom,
+    listScale,
+    showHidden,
+    sideWidth,
+    sidebarCollapsed,
+    showDevices,
+    showPlaces,
+    toolbarBtns,
+  ]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -242,6 +341,15 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
   const setShowHidden = useCallback((v: boolean) => {
     setShowHiddenState(v);
     localStorage.setItem("fily.hidden", v ? "1" : "0");
+  }, []);
+
+  // Public setters. Persistence is handled by the write-through effect above,
+  // so these only need to update state.
+  const setTheme = useCallback((t: Theme) => {
+    setThemeState(t);
+  }, []);
+  const setSidebarCollapsed = useCallback((v: boolean) => {
+    setSidebarCollapsedState(v);
   }, []);
 
   const setListScale = useCallback((v: number) => {
@@ -296,6 +404,8 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
     setShowDevicesState(true);
     setShowPlacesState(true);
     setSidebarCollapsed(false);
+    // Reset the shared file too, so `fily config list` agrees with the UI.
+    void fsApi.resetSettings().catch(() => {});
   }, []);
 
   // Load whenever path or the global hidden toggle changes.
@@ -437,7 +547,7 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
   const value: AppCtx = {
     theme,
     setTheme,
-    toggleTheme: () => setTheme((t) => (t === "dark" ? "light" : "dark")),
+    toggleTheme: () => setThemeState((t) => (t === "dark" ? "light" : "dark")),
     sidebarCollapsed,
     setSidebarCollapsed,
     previewVisible,

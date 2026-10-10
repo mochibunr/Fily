@@ -1,6 +1,7 @@
 import type {
   CopyOptions,
   FileEntry,
+  FilySettings,
   OpResult,
   Place,
   SearchOptions,
@@ -229,4 +230,50 @@ export const fsApi = {
       throw friendly(e);
     }
   },
+
+  // --- Settings ---------------------------------------------------------
+  // Backed by a JSON file so the app can also be configured from outside via
+  // `fily config …` (see src-tauri/src/settings.rs).
+
+  /** Current settings plus whether a settings file already existed on disk. */
+  async getSettings(): Promise<{ settings: FilySettings; exists: boolean }> {
+    try {
+      const [settings, exists] = await call<[FilySettings, boolean]>("get_settings");
+      return { settings, exists };
+    } catch (e) {
+      throw friendly(e);
+    }
+  },
+  /** Merge a partial patch; unknown keys are rejected by the backend. */
+  async setSettings(patch: Partial<FilySettings>): Promise<FilySettings> {
+    try {
+      return await call<FilySettings>("set_settings", { patch });
+    } catch (e) {
+      throw friendly(e);
+    }
+  },
+  async resetSettings(): Promise<FilySettings> {
+    try {
+      return await call<FilySettings>("reset_settings");
+    } catch (e) {
+      throw friendly(e);
+    }
+  },
 };
+
+/**
+ * Subscribe to settings changed externally (CLI, AI agent, or a second
+ * instance). Returns an unsubscribe function; a no-op in the browser where
+ * there is no Tauri event bus.
+ */
+export async function onSettingsChanged(
+  handler: (s: FilySettings) => void,
+): Promise<() => void> {
+  try {
+    const mod = await import("@tauri-apps/api/event");
+    const un = await mod.listen<FilySettings>("settings-changed", (e) => handler(e.payload));
+    return un;
+  } catch {
+    return () => {};
+  }
+}

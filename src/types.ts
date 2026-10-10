@@ -77,3 +77,16 @@ export interface TabState {
   history: string[];
   histIndex: number;
 }
+
+/** Mirrors `FilySettings` in `src-tauri/src/settings.rs`. */
+export interface FilySettings {
+  theme: Theme;
+  uiZoom: number;
+  listScale: number;
+  showHidden: boolean;
+  sideWidth: number;
+  sidebarCollapsed: boolean;
+  showDevices: boolean;
+  showPlaces: boolean;
+  toolbar: Record<string, boolean>;
+}

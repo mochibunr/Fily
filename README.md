@@ -149,15 +149,62 @@ npm run lint         # type check (tsc --noEmit)
 npm test             # vitest — formatting, path and search-parser suites
 npm run build        # type check + production build
 
-# Rust logic tests; no GTK/WebKit required
+# Rust: full suite (settings persistence, CLI typing, filesystem logic)
+cargo test --manifest-path src-tauri/Cargo.toml
+
+# Rust: pure logic only — runs with NO GTK/WebKit toolchain at all
 rustc --edition 2021 --test src-tauri/src/logic.rs -o /tmp/logic_test && /tmp/logic_test
+
 rustfmt --check --edition 2021 src-tauri/src/*.rs
 ```
 
 Current status: type check clean, production build clean, **vitest 8/8**,
-**Rust logic 6/6**, `rustfmt` clean, release build produces zero warnings.
-Functional UI, scaling, and thumbnail suites are also run during development;
-see [`PROGRESS.md`](PROGRESS.md) for the latest results.
+**Rust 15/15**, `rustfmt` clean, release build produces zero warnings.
+Functional UI, scaling, thumbnail, and configuration suites are also run during
+development; see [`PROGRESS.md`](PROGRESS.md) for the latest results.
+
+---
+
+## Configuring Fily from the command line
+
+Fily's settings live in a plain JSON file, so the app can be configured by a
+terminal, a script, or an AI agent — **no GUI required, and no restart**.
+
+```sh
+fily config list                          # show every setting and its value
+fily config get theme                     # read one value
+fily config set theme=nord                # change one value
+fily config set uiZoom=1.2 listScale=1.15 # several at once
+fily config set toolbar='{"terminal":false}'
+fily config reset                         # back to defaults
+fily config path                          # where the file lives
+```
+
+Settings file: `~/.config/fily/settings.json` (override with `FILY_CONFIG_DIR`).
+
+| Setting | Type | Range / values |
+|---|---|---|
+| `theme` | string | `light`, `dark`, `dracula`, `catppuccin-mocha`, `catppuccin-latte`, `nord`, `gruvbox`, `tokyo-night`, `one-dark` |
+| `uiZoom` | number | 0.7 – 1.6 (whole-window scale) |
+| `listScale` | number | 0.8 – 1.6 (file list text and icons) |
+| `showHidden` | bool | `true` / `false` |
+| `sideWidth` | number | 160 – 400 (sidebar width in px) |
+| `sidebarCollapsed` | bool | `true` / `false` |
+| `showDevices` | bool | show the Devices section |
+| `showPlaces` | bool | show the Places section |
+| `toolbar` | object | e.g. `{"newFolder":true,"terminal":false}` |
+
+**Changes apply live.** A background watcher notices edits to the file and the
+running window updates immediately — so you can keep Fily open and theme it
+from another terminal:
+
+```sh
+fily config set theme=dracula
+```
+
+Invalid keys and values are rejected with a specific error rather than being
+ignored, and out-of-range numbers are clamped, so a mistyped command can never
+leave the UI unusable.
 
 ---
 
@@ -173,6 +220,10 @@ React UI  ──invoke──▶  Rust commands  ──▶  filesystem
   Sidebar, …)           archive_commands,
                         open_commands,
                         logic.rs  ← pure, unit-tested)
+
+settings.json ◀──watched by Rust── emit "settings-changed" ──▶ React UI
+     ▲                                    │
+     └── fily config set ─────────────────┘ (live update, no restart)
 ```
 
 - `src/` — React front end. `store/app.tsx` holds all app state and

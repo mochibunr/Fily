@@ -60,9 +60,10 @@
       image, `</>`, grid, bars, `A`), solid folder, ribbon package, chain
       for symlinks. Lucide is stroke-only so filling it was not viable;
       replacing the per-type icons also cut 7 KB from the bundle.
-      Icon size is user-controllable two ways: Settings → File icons slider
-      (14–30px, live preview) and Ctrl+Wheel over the list/grid (1px per
-      notch), shared, persisted, reset by Reset all settings.
+      Icon size was first exposed as a Settings → File icons slider
+      (14–30px) and Ctrl+Wheel; **Round 12 replaced both** with a single
+      "File list size" scale (80–160%) covering text and icons together, so
+      the icon-only control no longer exists.
 - [x] Round 12 (scale + thumbnails): whole-app UI scale (Settings → App
       size, Ctrl +`+`/`-`/`0`) via CSS `zoom`. `100vh` is the *unzoomed*
       viewport, so root/body/#root height is `calc(100vh / var(--zoom))` —
@@ -86,6 +87,22 @@
       drive `rowPx = ROW_H * scale`; the pads stay in unscaled px
       (`start * ROW_H`). Verified by a probe asserting the row under the
       header matches the scroll position exactly.
+- [x] Round 14 (CLI/AI configuration): settings moved out of the webview into
+      an authoritative JSON file at `~/.config/fily/settings.json`
+      (`FILY_CONFIG_DIR` overrides), because `localStorage` is unreachable by
+      any external process — an AI could not configure the app at all.
+      `fily config list|get|set|reset|path` runs before the Tauri builder so it
+      never opens a window; unknown keys and bad values are rejected with a
+      specific error instead of silently ignored, and numeric values are clamped
+      on write and again on read. A Rust watcher polls the file and emits
+      `settings-changed`, so `fily config set theme=nord` re-themes a RUNNING
+      window with no restart; the store writes through on every in-app change,
+      so the file is always current whichever side changed it. On first run the
+      existing `localStorage` values are migrated up so no one loses prefs.
+      Verified: Rust 15/15 (6 new settings + 3 CLI tests), config suite 4/4
+      (file beats stale localStorage, write-through, event subscription),
+      existing suites unchanged at 27/27 + 7/7 + 4/4, zero warnings,
+      rustfmt clean. Bundle 3.74 → 3.81 MiB (serde_json).
 - [x] Round 8 (menu key + scroll memory): F10 / Menu key pops the context
       menu anchored at the selected row; per-directory scroll offsets
       remembered (capped at 100) and restored after Back/Forward/mouse
