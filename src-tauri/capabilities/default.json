@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.tauri.app/config/2/capability",
+  "identifier": "default",
+  "description": "Permissions for Fily's main window: custom titlebar controls and the folder picker.",
+  "windows": ["main"],
+  "permissions": [
+    "core:window:allow-close",
+    "core:window:allow-is-maximized",
+    "core:window:allow-maximize",
+    "core:window:allow-minimize",
+    "core:window:allow-start-dragging",
+    "core:window:allow-start-resize-dragging",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-unmaximize",
+    "dialog:allow-open"
+  ]
+}
