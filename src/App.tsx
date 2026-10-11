@@ -58,6 +58,12 @@ function Shell() {
   const [palette, setPalette] = useState(false);
   const [noBackend, setNoBackend] = useState(false);
   const searchToken = useRef(0);
+  // Pending debounce timers, per pane. This used to be returned as a cleanup
+  // function, but the call site (`onSearch={(q) => runSearch(pane, q)}`)
+  // discards a return value from an event handler, so nothing was ever
+  // cancelled: typing "README" started six concurrent walks of the same tree
+  // and only the last one to finish won the race.
+  const searchTimers = useRef<Record<number, number>>({});
 
   useEffect(() => {
     void isTauri().then((ok) => { if (!ok) setNoBackend(true); });
@@ -66,12 +72,16 @@ function Shell() {
   const runSearch = useCallback((pane: number, q: string) => {
     const token = ++searchToken.current;
     const dir = app.panes[pane]?.path;
+    // Cancel this pane's pending walk before scheduling a new one.
+    const pending = searchTimers.current[pane];
+    if (pending !== undefined) window.clearTimeout(pending);
     if (!q.trim() || !dir) {
       setSearches((s) => ({ ...s, [pane]: { query: q, results: null, searching: false } }));
       return;
     }
     setSearches((s) => ({ ...s, [pane]: { query: q, results: s[pane]?.results ?? null, searching: true } }));
     const timer = window.setTimeout(() => {
+      delete searchTimers.current[pane];
       void (async () => {
         try {
           const res = await fsApi.searchDir(dir, toSearchOptions(q));
@@ -84,7 +94,7 @@ function Shell() {
         }
       })();
     }, 250);
-    return () => window.clearTimeout(timer);
+    searchTimers.current[pane] = timer;
   }, [app]);
 
   const searchFor = (pane: number): SearchState =>

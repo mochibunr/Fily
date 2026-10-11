@@ -664,10 +664,15 @@ fn delete_permanent_blocking(paths: Vec<String>) -> Result<OpResult, String> {
 // Search
 // ---------------------------------------------------------------------------
 
-/// Directory names that are never worth searching: caches, VCS internals and
-/// dependency trees. Matched exactly (case-insensitively) rather than by
-/// substring, so a project legitimately called `git` is not pruned.
-const NOISE_DIRS: [&str; 10] = [
+/// Directory names that are never worth searching: caches, SDK checkouts, VCS
+/// internals and dependency trees. Matched exactly (case-insensitively) rather
+/// than by substring, so a project legitimately called `git` is not pruned.
+///
+/// `Android` and `Flutter` are the usual bare SDK checkouts in `$HOME`; both
+/// hold hundreds of thousands of files. Matching them case-insensitively also
+/// prunes a lowercase project folder of the same name, which is the
+/// deliberate trade — the SDK copy is far more expensive to walk.
+const NOISE_DIRS: [&str; 16] = [
     "cache",
     ".cache",
     "node_modules",
@@ -678,6 +683,12 @@ const NOISE_DIRS: [&str; 10] = [
     "trash",
     ".git",
     "snap",
+    ".gradle",
+    ".codex",
+    ".rustup",
+    ".pub-cache",
+    "Android",
+    "Flutter",
 ];
 
 /// Absolute prefixes that are noise regardless of what they are called.
@@ -717,7 +728,12 @@ fn matches_search(path: &Path, entry: &FileEntry, opts: &SearchOptions, q: &str)
     if !logic::name_matches(&entry.name, q) {
         return false;
     }
-    if !opts.extensions.is_empty() {
+    // Directories carry no extension, so an extension filter can never match
+    // one. Applying the filter to them as-is silently dropped every folder
+    // from results, which made searching for a folder ("InstaLy") look like a
+    // dead end whenever any filter text was present. Folders are containers,
+    // not typed files: the name test above already decided whether they match.
+    if !opts.extensions.is_empty() && !entry.is_dir {
         let ext = entry.extension.to_lowercase();
         if !opts
             .extensions
@@ -775,41 +791,70 @@ fn search_dir_blocking(dir: String, options: SearchOptions) -> Result<Vec<FileEn
         .max_depth
         .unwrap_or(if options.recursive { 8 } else { 1 });
     let depth = if options.recursive { max_depth } else { 1 };
-    let noise_root = root.clone();
-    let walker = walkdir::WalkDir::new(&root)
-        .max_depth(depth)
-        .follow_links(false)
-        .into_iter()
-        // Prune whole subtrees that never contain anything a person is
-        // looking for. `.cache` under $HOME alone can hold tens of thousands
-        // of files, and walking them burns the whole result budget on noise
-        // that then buries the real matches.
-        .filter_entry(move |e| !is_search_noise(e.path(), &noise_root));
+    // Breadth-first, level by level, via an explicit queue.
+    //
+    // A plain WalkDir recursion is depth-first, so it commits to one subtree
+    // before ever listing the next sibling's children. In a home folder that
+    // means the walk dives into the first large tree it meets and can spend
+    // the entire visit budget down there, never coming back up to look at the
+    // folders sitting right beside it -- so searching for a top-level folder
+    // could return nothing at all. Visiting every level shallowest-first means
+    // the budget is always spent on the entries closest to where the user is
+    // standing, which is what they are almost always looking for.
     let mut out = Vec::new();
     let mut visited = 0usize;
-    for item in walker.filter_map(|e| e.ok()) {
+    let mut queue: std::collections::VecDeque<(std::path::PathBuf, usize)> =
+        std::collections::VecDeque::new();
+    queue.push_back((root.clone(), 0));
+
+    'walk: while let Some((dir_path, dir_depth)) = queue.pop_front() {
         if out.len() >= max_results {
             break;
         }
-        visited += 1;
-        if visited % 1024 == 0 {
-            // Superseded by a newer search, or past a sane walk budget:
-            // stop early and return what we have.
-            if GENERATION.load(std::sync::atomic::Ordering::SeqCst) != gen || visited > 300_000 {
-                break;
-            }
-        }
-        let p = item.path();
-        if p == root {
-            continue;
-        }
-        let meta = match fs::symlink_metadata(p) {
-            Ok(m) => m,
+        let reader = match fs::read_dir(&dir_path) {
+            Ok(r) => r,
+            // Unreadable directory: skip it, as walkdir's filter_map did.
             Err(_) => continue,
         };
-        let entry = entry_from_path(p, &meta);
-        if matches_search(p, &entry, &options, &q) {
-            out.push(entry);
+        // Children are queued behind every sibling directory's own entries so
+        // the next level stays level-ordered rather than depth-ordered.
+        let mut children: Vec<std::path::PathBuf> = Vec::new();
+        for item in reader.filter_map(|e| e.ok()) {
+            if out.len() >= max_results {
+                break 'walk;
+            }
+            visited += 1;
+            if visited % 1024 == 0 {
+                // Superseded by a newer search, or past a sane walk budget:
+                // stop early and return what we have.
+                if GENERATION.load(std::sync::atomic::Ordering::SeqCst) != gen || visited > 300_000
+                {
+                    break 'walk;
+                }
+            }
+            let p = item.path();
+            if p == root {
+                continue;
+            }
+            if is_search_noise(&p, &root) {
+                continue;
+            }
+            let meta = match fs::symlink_metadata(&p) {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            let entry = entry_from_path(&p, &meta);
+            if matches_search(&p, &entry, &options, &q) {
+                out.push(entry);
+            }
+            // symlink_metadata reports a symlink as a non-directory, so
+            // linked trees are not followed -- same as follow_links(false).
+            if meta.is_dir() && dir_depth + 1 < depth {
+                children.push(p);
+            }
+        }
+        for child in children {
+            queue.push_back((child, dir_depth + 1));
         }
     }
     // Folders first, then by name — the same order the list view uses, so a
@@ -1357,6 +1402,134 @@ mod tests {
         let names: Vec<&str> = hits.iter().map(|e| e.name.as_str()).collect();
         assert_eq!(names, vec!["needle-real.txt"], "noise leaked: {names:?}");
 
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn search_skips_sdk_and_toolchain_directories() {
+        let dir = tmpdir("sdk");
+        // Every directory the user asked to have skipped, including the
+        // mixed-case SDK checkouts. Case-insensitive matching is what makes
+        // bare `Android`/`Flutter` work.
+        for noise in [
+            ".gradle",
+            ".codex",
+            ".rustup",
+            ".pub-cache",
+            "Android",
+            "Flutter",
+            "android",
+            "flutter",
+            ".rustup/toolchains",
+            "Android/sdk/platforms",
+        ] {
+            let d = dir.join(noise);
+            fs::create_dir_all(&d).unwrap();
+            fs::write(d.join("needle-hidden.txt"), "a").unwrap();
+        }
+        fs::write(dir.join("needle-real.txt"), "a").unwrap();
+
+        let hits = search_dir_blocking(dir.to_string_lossy().into_owned(), opts("needle")).unwrap();
+        let names: Vec<&str> = hits.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["needle-real.txt"], "SDK dirs leaked: {names:?}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn search_finds_a_top_level_folder_in_a_large_home() {
+        // The reported failure: `~/InstaLy` was not returned even though it
+        // exists. A depth-first walk commits to the first big subtree it meets
+        // and can spend its whole visit budget down there, never surfacing the
+        // folders sitting beside it. Breadth-first ordering fixes this, so the
+        // budget gets spent on depth 1 first.
+        let dir = tmpdir("starve");
+        fs::create_dir_all(dir.join("zzz-InstaLy")).unwrap();
+        fs::write(dir.join("zzz-InstaLy/app.js"), "a").unwrap();
+        // A deep tree whose contents also match, so a result cap or visit
+        // budget would be hit if it were walked before the top level. Named to
+        // sort ahead of the folder above: depth-first traversal enters it
+        // first and spends the entire budget down there, never surfacing the
+        // sibling sitting right beside it.
+        for i in 0..40 {
+            let d = dir.join(format!("Projects/build{i}/deep/deeper"));
+            fs::create_dir_all(&d).unwrap();
+            for f in 0..40 {
+                fs::write(d.join(format!("instaly{f}.dat")), "a").unwrap();
+            }
+        }
+
+        let hits =
+            search_dir_blocking(dir.to_string_lossy().into_owned(), opts("instaly")).unwrap();
+        let names: Vec<&str> = hits.iter().map(|e| e.name.as_str()).collect();
+        assert!(
+            names.contains(&"zzz-InstaLy"),
+            "top-level folder was starved: {:?}",
+            &names[..names.len().min(8)]
+        );
+        // The folder must also lead: breadth-first reaches depth 1 first.
+        assert_eq!(
+            names.first(),
+            Some(&"zzz-InstaLy"),
+            "shallowest match must come first, got {names:?}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn search_returns_folders_alongside_an_extension_filter() {
+        // A directory has no extension, so filtering by extension used to
+        // reject every folder: searching for a folder while any filter text
+        // was present returned nothing at all.
+        let dir = tmpdir("folderfilter");
+        fs::create_dir_all(dir.join("InstaLy")).unwrap();
+        fs::write(dir.join("report.pdf"), "a").unwrap();
+        fs::write(dir.join("notes.txt"), "a").unwrap();
+
+        let mut o = opts("instaly");
+        o.extensions = vec!["pdf".to_string()];
+        let hits = search_dir_blocking(dir.to_string_lossy().into_owned(), o).unwrap();
+        let names: Vec<&str> = hits.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["InstaLy"], "folder dropped by ext filter");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn search_still_filters_files_by_extension() {
+        let dir = tmpdir("extfilter");
+        fs::create_dir_all(dir.join("InstaLy")).unwrap();
+        fs::write(dir.join("report.pdf"), "a").unwrap();
+        fs::write(dir.join("notes.txt"), "a").unwrap();
+
+        // Empty query with a filter must return only the matching file plus
+        // the folder -- not the .txt.
+        let mut o = opts("");
+        o.extensions = vec!["pdf".to_string()];
+        let hits = search_dir_blocking(dir.to_string_lossy().into_owned(), o).unwrap();
+        let mut names: Vec<&str> = hits.iter().map(|e| e.name.as_str()).collect();
+        names.sort_unstable();
+        assert_eq!(
+            names,
+            vec!["InstaLy", "report.pdf"],
+            "filter wrong: {names:?}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn search_finds_uppercase_named_folder_and_file() {
+        let dir = tmpdir("upperfolder");
+        fs::create_dir_all(dir.join("InstaLy")).unwrap();
+        fs::write(dir.join("InstaLy/README.md"), "a").unwrap();
+        fs::write(dir.join("REPORT.PDF"), "a").unwrap();
+
+        let p = dir.to_string_lossy().into_owned();
+        for q in [
+            "instaly", "InstaLy", "INSTALY", "readme", "README", "report",
+        ] {
+            let hits = search_dir_blocking(p.clone(), opts(q)).unwrap();
+            let names: Vec<&str> = hits.iter().map(|e| e.name.as_str()).collect();
+            assert!(!names.is_empty(), "query {q} found nothing");
+        }
         let _ = fs::remove_dir_all(&dir);
     }
 
