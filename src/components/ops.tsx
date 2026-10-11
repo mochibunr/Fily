@@ -7,6 +7,7 @@ import { fsApi } from "../api/fs";
 import type { FileEntry } from "../types";
 import { isArchiveExt } from "../utils/format";
 import type { CtxItem } from "./ContextMenu";
+import { baseName } from "../utils/format";
 
 interface OpsCtx {
   toast(kind: "info" | "error", text: string): void;
@@ -98,7 +99,7 @@ function permDelete(ctx: OpsCtx, paths: string[], names: string[]) {
 }
 
 function baseNameOf(p: string): string {
-  return p.split("/").pop() ?? p;
+  return baseName(p) || p;
 }
 
 function stemOf(name: string): string {

@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import type { SortKey } from "../types";
 import { fsApi } from "../api/fs";
 import { useApp } from "../store/app";
-import { baseName, splitPath } from "../utils/format";
+import { baseName, breadcrumb, parentDir } from "../utils/format";
 import ContextMenu from "./ContextMenu";
 
 const FILTER_HINTS = [
@@ -63,7 +63,9 @@ export default function Toolbar({ pane, onSearch, resetKey = 0 }: { pane: number
   }, [onSearch]);
 
   if (!p) return null;
-  const parts = splitPath(p.path);
+  // Built by a tested helper rather than inline: the previous inline version
+  // produced "/C:/Users" on Windows. The drive letter is the root crumb there.
+  const crumbs = breadcrumb(p.path);
   const tb = app.toolbarBtns;
 
   const doPaste = async () => {
@@ -106,8 +108,9 @@ export default function Toolbar({ pane, onSearch, resetKey = 0 }: { pane: number
       if (st.isDir) {
         app.navigate(pane, st.path);
       } else {
-        // A file path jumps to its parent and selects the file.
-        const parent = v.slice(0, Math.max(v.lastIndexOf("/"), 1)) || "/";
+        // A file path jumps to its parent and selects the file. parentDir
+        // handles both separators and stops at a Windows drive root.
+        const parent = parentDir(v) ?? v;
         app.navigate(pane, parent);
         window.setTimeout(() => app.setSelection(pane, [st.path]), 400);
       }
@@ -158,15 +161,17 @@ export default function Toolbar({ pane, onSearch, resetKey = 0 }: { pane: number
           setLocVal(p.path);
           setLocEditing(true);
         }}
-      >        <button className={`crumb${p.path === "/" ? " current" : ""}`} onClick={() => app.navigate(pane, "/")} title="/">/</button>
-        {parts.map((seg, i) => {
-          const full = "/" + parts.slice(0, i + 1).join("/");
-          const last = i === parts.length - 1;
+      >        {crumbs.map((c, i) => {
+          const last = i === crumbs.length - 1;
           return (
-            <span key={full} style={{ display: "flex", alignItems: "center" }}>
-              <span className="crumb-sep">›</span>
-              <button className={`crumb${last ? " current" : ""}`} onClick={() => app.navigate(pane, full)} title={full}>
-                {seg}
+            <span key={c.path} style={{ display: "flex", alignItems: "center" }}>
+              {i > 0 && <span className="crumb-sep">›</span>}
+              <button
+                className={`crumb${last ? " current" : ""}`}
+                onClick={() => app.navigate(pane, c.path)}
+                title={c.path}
+              >
+                {c.label}
               </button>
             </span>
           );

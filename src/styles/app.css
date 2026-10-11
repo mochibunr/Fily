@@ -718,7 +718,21 @@ button.mini-btn, .mini-btn {
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-pop);
   padding: 5px;
+  /* The menu is ~675px tall with every entry. In a shorter window it used to
+     be flipped to the top and still run off the bottom, hiding "Move to
+     Trash" and "Delete forever…" entirely — unreachable and un-clickable.
+     Cap it to the viewport and let it scroll instead. */
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
+/* When the menu would run past an edge, anchor it to that edge instead.
+   The `!important` is load-bearing: React writes `style.top`/`style.left`
+   from props on every commit, which silently undid any clamp applied
+   imperatively, and a tall menu pushed "Move to Trash" and "Delete forever…"
+   off the bottom of the window where they could not be seen or clicked. */
+.ctx-menu.ctx-up { top: auto !important; bottom: 8px; }
+.ctx-menu.ctx-left { left: 8px !important; }
 .ctx-item {
   display: flex;
   align-items: center;

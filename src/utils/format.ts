@@ -34,7 +34,12 @@ export function parentDir(path: string): string | null {
   const clean = path.replace(/[\\/]+$/, "");
   const idx = Math.max(clean.lastIndexOf("/"), clean.lastIndexOf("\\"));
   if (idx <= 0) return "/";
-  return clean.slice(0, idx) || "/";
+  const seg = clean.slice(0, idx);
+  // `C:` is not the drive root -- on Windows it means "the current directory
+  // on drive C". Going up from C:\Users must land on C:\, so put the separator
+  // back or the pane jumps to some unrelated directory.
+  if (/^[A-Za-z]:$/.test(seg)) return seg + "\\";
+  return seg || "/";
 }
 
 export function baseName(path: string): string {
@@ -51,9 +56,40 @@ export function splitPath(path: string): string[] {
   return parts;
 }
 
+/**
+ * Build the breadcrumb for a path: a root crumb plus one segment per level,
+ * each carrying the real path to navigate to.
+ *
+ * This used to live inline as `"/" + parts.slice(0, i + 1).join("/")`, which
+ * turns `C:\Users\foo` into `/C:/Users` and navigates nowhere. The drive letter
+ * is the root crumb on Windows rather than a segment, and the joiner follows
+ * the platform's separator.
+ */
 export function joinPath(dir: string, name: string): string {
   if (dir.endsWith("/") || dir.endsWith("\\")) return dir + name;
   return dir + "/" + name;
+}
+
+export interface Crumb {
+  label: string;
+  path: string;
+}
+
+export function breadcrumb(path: string): Crumb[] {
+  if (!path) return [];
+  const isWin = /^[A-Za-z]:/.test(path);
+  const parts = splitPath(path);
+  const rootPath = isWin ? path.slice(0, 2) + "\\" : "/";
+  const rootLabel = isWin ? path.slice(0, 2) : "/";
+  const out: Crumb[] = [{ label: rootLabel, path: rootPath }];
+  const segments = isWin ? parts.slice(1) : parts;
+  segments.forEach((seg, i) => {
+    out.push({
+      label: seg,
+      path: isWin ? parts.slice(0, i + 2).join("\\") : "/" + parts.slice(0, i + 1).join("/"),
+    });
+  });
+  return out;
 }
 
 export function isImageExt(ext: string): boolean {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FileEntry, FilySettings } from "../src/types";
-import { baseName, formatDate, formatSize, joinPath, parentDir, splitPath } from "../src/utils/format";
+import { baseName, breadcrumb, formatDate, formatSize, joinPath, parentDir, splitPath } from "../src/utils/format";
 import { parseSearchQuery, parseSizeToken, toSearchOptions } from "../src/utils/search";
 import { naturalCompare, plainCompare } from "../src/utils/sort";
 import { settingsSnapshot, sortEntries } from "../src/store/app";
@@ -171,6 +171,62 @@ describe("settingsSnapshot", () => {
     const seen = new Set(variants.map(settingsSnapshot));
     expect(seen.size).toBe(variants.length);
     expect(seen.has(settingsSnapshot(base))).toBe(false);
+  });
+});
+
+describe("Windows path handling", () => {
+  it("parentDir walks up a Windows path", () => {
+    expect(parentDir("C:\\Users\\foo\\Documents")).toBe("C:\\Users\\foo");
+    expect(parentDir("C:\\Users")).toBe("C:\\");
+  });
+
+  it("parentDir refuses to go above a drive root", () => {
+    // Going up from a drive root on Windows must not become "/".
+    expect(parentDir("C:\\")).toBeNull();
+    expect(parentDir("C:")).toBeNull();
+    expect(parentDir("/")).toBeNull();
+  });
+
+  it("baseName takes the last segment of a Windows path", () => {
+    expect(baseName("C:\\Users\\foo\\report.pdf")).toBe("report.pdf");
+    expect(baseName("C:\\Users\\foo\\")).toBe("foo");
+  });
+
+  it("splitPath separates a drive letter as its own segment", () => {
+    expect(splitPath("C:\\Users\\foo")).toEqual(["C:", "Users", "foo"]);
+  });
+
+  it("breadcrumb builds real, navigable Windows paths", () => {
+    // The old inline version produced "/C:/Users" for every segment.
+    expect(breadcrumb("C:\\Users\\foo\\Documents")).toEqual([
+      { label: "C:", path: "C:\\" },
+      { label: "Users", path: "C:\\Users" },
+      { label: "foo", path: "C:\\Users\\foo" },
+      { label: "Documents", path: "C:\\Users\\foo\\Documents" },
+    ]);
+  });
+
+  it("breadcrumb builds real POSIX paths too", () => {
+    expect(breadcrumb("/home/tester/Documents")).toEqual([
+      { label: "/", path: "/" },
+      { label: "home", path: "/home" },
+      { label: "tester", path: "/home/tester" },
+      { label: "Documents", path: "/home/tester/Documents" },
+    ]);
+  });
+
+  it("breadcrumb handles a bare drive root", () => {
+    expect(breadcrumb("C:\\")).toEqual([{ label: "C:", path: "C:\\" }]);
+    expect(breadcrumb("/")).toEqual([{ label: "/", path: "/" }]);
+  });
+
+  it("every crumb path is absolute for its platform", () => {
+    for (const c of breadcrumb("C:\\Users\\foo")) {
+      expect(c.path.startsWith("C:\\")).toBe(true);
+    }
+    for (const c of breadcrumb("/home/tester")) {
+      expect(c.path.startsWith("/")).toBe(true);
+    }
   });
 });
 

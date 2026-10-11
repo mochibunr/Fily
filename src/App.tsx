@@ -16,7 +16,7 @@ import Toolbar from "./components/Toolbar";
 import { buildMenu, doPaste } from "./components/ops";
 import { AppProvider, useApp } from "./store/app";
 import type { FileEntry } from "./types";
-import { baseName } from "./utils/format";
+import { baseName, joinPath, parentDir } from "./utils/format";
 import { toSearchOptions } from "./utils/search";
 
 interface SearchState {
@@ -295,7 +295,7 @@ function Shell() {
       }),
       mk("new-tab", "New tab here", "Ctrl+T", () => app.openTab(p?.path ?? "/")),
       mk("rename", "Rename selected", "F2", () => { if (sel.length === 1) setRenaming(sel[0]); }),
-      mk("bulk", "Bulk rename selected…", "", () => { if (sel.length >= 2 && p) setBulk({ paths: sel, names: sel.map((s) => s.split("/").pop() ?? s) }); }),
+      mk("bulk", "Bulk rename selected…", "", () => { if (sel.length >= 2 && p) setBulk({ paths: sel, names: sel.map((s) => baseName(s) || s) }); }),
       mk("trash", "Move selection to Trash", "Del", () => {
         if (sel.length) void fsApi.trashPaths(sel).then(() => app.refreshAll()).catch((e) => app.toast("error", e.message));
       }),
@@ -378,10 +378,10 @@ function Shell() {
             app,
             {
               beginRename: (path) => setRenaming(path),
-              openBulkRename: (paths) => setBulk({ paths, names: paths.map((s) => s.split("/").pop() ?? s) }),
+              openBulkRename: (paths) => setBulk({ paths, names: paths.map((s) => baseName(s) || s) }),
               openProperties: setPropsPath,
               openPalette: () => setPalette(true),
-              openWithDialog: (path, mime) => setOpenWith({ path, mime, name: path.split("/").pop() ?? path }),
+              openWithDialog: (path, mime) => setOpenWith({ path, mime, name: baseName(path) || path }),
               moveCopyTo: (mode, paths) => {
                 void (async () => {
                   const start = app.panes[app.focusPane]?.path ?? "/";
@@ -392,13 +392,13 @@ function Shell() {
               },
               compressSel: (paths, suggestedName) => {
                 const first = paths[0] ?? "";
-                const dir = first.includes("/") ? first.slice(0, first.lastIndexOf("/")) || "/" : "/";
+                const dir = parentDir(first) ?? first;
                 app.askPrompt({
                   title: "Compress",
                   label: "Archive name",
                   initial: suggestedName,
                   onSubmit: async (v) => {
-                    const dest = dir === "/" ? `/${v}` : `${dir}/${v}`;
+                    const dest = joinPath(dir, v);
                     try {
                       const r = await fsApi.compressZip(paths, dest);
                       if (!r.ok && r.conflicts.length > 0) {
@@ -424,7 +424,7 @@ function Shell() {
               },
               extractTo: (path) => {
                 void (async () => {
-                  const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) || "/" : "/";
+                  const dir = parentDir(path) ?? path;
                   const dest = await pickDestDir("Extract to…", dir);
                   if (!dest) return;
                   try {

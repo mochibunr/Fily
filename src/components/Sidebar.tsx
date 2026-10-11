@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { fsApi } from "../api/fs";
 import { useApp } from "../store/app";
 import type { Place, Volume } from "../types";
+import { baseName } from "../utils/format";
 
 const RAIL_W = 58;
 const MIN_W = 160;
@@ -124,7 +125,7 @@ export default function Sidebar() {
           <h4>In progress</h4>
           {opList.map((op) => {
             const pct = op.total > 0 ? Math.min(100, Math.round((op.done / op.total) * 100)) : 0;
-            const cur = op.current ? op.current.split("/").pop() : "";
+            const cur = op.current ? baseName(op.current) : "";
             return (
               <div className="op-row" key={op.id} title={op.current || op.label}>
                 <div className="op-top">

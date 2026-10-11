@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { fsApi } from "../api/fs";
 import { useApp } from "../store/app";
 import { formatDate, formatSize, kindLabel } from "../utils/format";
+import { baseName } from "../utils/format";
 
 export function BulkRenameDialog({ paths, names, onClose }: { paths: string[]; names: string[]; onClose(): void }) {
   const app = useApp();
@@ -13,7 +14,7 @@ export function BulkRenameDialog({ paths, names, onClose }: { paths: string[]; n
 
   const preview = useMemo(() => {
     return paths.map((p, i) => {
-      const orig = names[i] ?? p.split("/").pop() ?? p;
+      const orig = names[i] ?? (baseName(p) || p);
       const dot = orig.lastIndexOf(".");
       const stem = dot > 0 ? orig.slice(0, dot) : orig;
       const ext = dot > 0 ? orig.slice(dot) : "";
@@ -68,7 +69,7 @@ export function BulkRenameDialog({ paths, names, onClose }: { paths: string[]; n
           <div className="conflict-list" style={{ maxHeight: 220 }}>
             {preview.map((r) => (
               <div key={r.from} style={{ display: "flex", gap: 8 }}>
-                <code style={{ color: "var(--text-3)" }}>{r.from.split("/").pop()}</code>
+                <code style={{ color: "var(--text-3)" }}>{baseName(r.from)}</code>
                 <span>→</span>
                 <code>{r.display}</code>
               </div>

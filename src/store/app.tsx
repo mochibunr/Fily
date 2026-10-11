@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import type { DirViewPrefs, FileEntry, FilySettings, OpProgress, SortKey, TabState, Theme } from "../types";
 import { fsApi, onSettingsChanged } from "../api/fs";
 import { naturalCompare, plainCompare } from "../utils/sort";
+import { baseName, parentDir } from "../utils/format";
 
 export interface Toast {
   id: number;
@@ -542,10 +543,12 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
 
   const goUp = useCallback((pane: number) => {
     const p = panesRef.current[pane];
-    if (!p || p.path === "/") return;
-    const clean = p.path.replace(/\/+$/, "");
-    const idx = clean.lastIndexOf("/");
-    const up = idx <= 0 ? "/" : clean.slice(0, idx);
+    if (!p) return;
+    // parentDir understands both separators and refuses to go above a Windows
+    // drive root. The old inline `lastIndexOf("/")` found no separator at all
+    // in `C:\Users\foo` and sent the pane to `/`.
+    const up = parentDir(p.path);
+    if (!up || up === p.path) return;
     navigate(pane, up);
   }, [navigate]);
 
@@ -616,7 +619,7 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
   const addBookmark = useCallback((path: string) => {
     setBookmarks((bs) => {
       if (bs.some((b) => b.path === path)) return bs;
-      const label = path.split("/").filter(Boolean).pop() ?? path;
+      const label = baseName(path) || path;
       const next = [...bs, { label, path }];
       localStorage.setItem("fily.bookmarks", JSON.stringify(next));
       return next;

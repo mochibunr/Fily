@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, type CSSProperties } from "react";
 export interface CtxItem {
   label: string;
   shortcut?: string;
@@ -16,12 +16,24 @@ export default function ContextMenu({ x, y, sections, onClose }: {
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
+  // Clamp the menu into the viewport AFTER every commit, by toggling a class.
+  //
+  // Applying `el.style.top` imperatively did not work: React writes style.top
+  // from props on every re-render, so the correction was undone and a tall
+  // menu ran off the bottom, hiding "Move to Trash" and "Delete forever…".
+  // A stylesheet rule with `!important` beats React's inline style, so the
+  // clamp cannot be lost. See `.ctx-menu.ctx-up` / `.ctx-left`.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    el.classList.toggle("ctx-up", y + r.height > window.innerHeight - 8);
+    el.classList.toggle("ctx-left", x + r.width > window.innerWidth - 8);
+  });
+
   useEffect(() => {
     const el = ref.current;
     if (el) {
-      const r = el.getBoundingClientRect();
-      if (x + r.width > window.innerWidth - 8) el.style.left = `${Math.max(8, window.innerWidth - r.width - 8)}px`;
-      if (y + r.height > window.innerHeight - 8) el.style.top = `${Math.max(8, window.innerHeight - r.height - 8)}px`;
       (el.querySelector("button:not(:disabled)") as HTMLButtonElement | null)?.focus();
     }
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
