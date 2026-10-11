@@ -120,11 +120,33 @@ export function StatusBar({ total, shown }: { total: number; shown: number }) {
   const app = useApp();
   const sel = app.panes[app.focusPane]?.selection ?? [];  const selEntries = app.panes[app.focusPane]?.entries.filter((e) => sel.includes(e.path)) ?? [];
   const selBytes = selEntries.filter((e) => !e.isDir).reduce((a, e) => a + e.size, 0);
+  const ops = Object.values(app.ops);
   return (
     <div className="statusbar" role="status">
       <span>{shown === total ? `${total} items` : `${shown} of ${total} shown`}</span>
       {app.showHidden && <span>· hidden shown</span>}
       {sel.length > 0 && <span>{sel.length} selected{selBytes > 0 ? ` · ${formatSize(selBytes)}` : ""}</span>}
+      {/* Long operations show here as well as in the sidebar: the status bar
+          is always on screen, so progress cannot hide behind a collapsed
+          sidebar or a settings change. */}
+      {ops.map((op) => {
+        const pct = op.total > 0 ? Math.min(100, Math.round((op.done / op.total) * 100)) : 0;
+        return (
+          <span key={op.id} className="sb-op" title={op.current || op.label}>
+            <span className="sb-op-label">{op.label}</span>
+            {op.total > 0 && <span className="sb-op-pct">{pct}%</span>}
+            <span className="sb-op-bar">
+              <span
+                className="sb-op-fill"
+                style={{
+                  width: op.total > 0 ? `${pct}%` : "35%",
+                  animation: op.total > 0 ? undefined : "op-slide 1.1s ease-in-out infinite",
+                }}
+              />
+            </span>
+          </span>
+        );
+      })}
       <span className="right">
         <span>{app.panes[app.focusPane]?.path}</span>
       </span>

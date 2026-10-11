@@ -252,8 +252,13 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
         if (cancelled) un();
         else dispose = un;
       })
-      .catch(() => {
-        /* Not running under Tauri (browser preview): no events, no rows. */
+      .catch((e) => {
+        // Never swallow this. It failed here for a long time: the capability
+        // file granted no event permission, so listen() was denied, the
+        // backend emitted progress and settings changes into the void, and
+        // the app simply looked like it had no progress bar. A swallowed
+        // rejection turns a one-line config fix into a mystery.
+        console.error("[fily] op-progress listener failed:", e);
       });
     return () => {
       cancelled = true;

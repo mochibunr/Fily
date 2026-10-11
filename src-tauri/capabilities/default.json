@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2/capability",
   "identifier": "default",
-  "description": "Permissions for Fily's main window: custom titlebar controls and the folder picker.",
+  "description": "Permissions for Fily's main window: custom titlebar controls, the folder picker, and events. core:event is required for listen() — without it the backend emits fine and the webview is never allowed to receive, so progress bars and live settings changes silently do nothing.",
   "windows": ["main"],
   "permissions": [
     "core:window:allow-close",
@@ -12,6 +12,8 @@
     "core:window:allow-start-resize-dragging",
     "core:window:allow-toggle-maximize",
     "core:window:allow-unmaximize",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
     "dialog:allow-open"
   ]
 }

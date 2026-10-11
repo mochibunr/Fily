@@ -946,6 +946,20 @@ button.mini-btn, .mini-btn {
   font-variant-numeric: tabular-nums;
 }
 .statusbar .right { margin-left: auto; display: flex; gap: 12px; }
+/* Long-operation progress in the status bar. Always visible, so it cannot be
+   hidden by a collapsed sidebar. */
+.sb-op { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); }
+.sb-op-label { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-op-pct { color: var(--text-3); }
+.sb-op-bar {
+  width: 84px; height: 4px; border-radius: 2px;
+  background: var(--bg-active); overflow: hidden; flex: none;
+}
+.sb-op-fill {
+  display: block; height: 100%; border-radius: 2px;
+  background: var(--accent, var(--ext-folder));
+  transition: width var(--dur-med) ease;
+}
 .conflict-list { display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow-y: auto; font-size: var(--fs-sm); }
 .conflict-list code { font-family: var(--font-mono); font-size: 11px; word-break: break-all; }
 .radio-row { display: flex; align-items: center; gap: 8px; font-size: var(--fs-md); }

@@ -189,6 +189,16 @@ fn compress_zip_blocking(
     Ok(result)
 }
 
+/// True when the file actually begins with the gzip magic number `1f 8b`,
+/// regardless of what it is called. Names lie; magic bytes do not.
+fn is_gzip(src: &Path) -> bool {
+    let mut head = [0u8; 2];
+    match fs::File::open(src) {
+        Ok(mut f) => f.read_exact(&mut head).is_ok() && head == [0x1f, 0x8b],
+        Err(_) => false,
+    }
+}
+
 /// Number of entries in a tar archive, read by walking headers only — no
 /// payload is decompressed, so this is a seek rather than a full read. It is
 /// what makes the progress bar a real percentage instead of a crawl.
@@ -224,14 +234,17 @@ pub fn extract_tar_to(
         .map(|s| s.to_string_lossy().to_lowercase())
         .unwrap_or_default();
 
-    // Decompression wrapper, chosen by extension. xz/bz2/zstd are not linked
-    // in, so those are reported plainly rather than failing obscurely.
-    let gz = lower.ends_with(".gz") || lower.ends_with(".tgz");
-    if lower.ends_with(".xz")
-        || lower.ends_with(".txz")
-        || lower.ends_with(".bz2")
-        || lower.ends_with(".tbz2")
-        || lower.ends_with(".zst")
+    // Decompression is chosen by CONTENT, not by the file name. A file called
+    // `.tar.gz` is very often a plain tar -- `tar -cf x.tar.gz dir` does not
+    // compress -- and trusting the name there fails with "Invalid Gzip
+    // header". xz/bz2/zstd are not linked in, so those are reported plainly.
+    let gz = is_gzip(src);
+    if !gz
+        && (lower.ends_with(".xz")
+            || lower.ends_with(".txz")
+            || lower.ends_with(".bz2")
+            || lower.ends_with(".tbz2")
+            || lower.ends_with(".zst"))
     {
         return err(format!(
             "{lower} is not supported yet. Repack it as .tar, .tar.gz or .zip."
@@ -441,6 +454,64 @@ mod tests {
         for (name, body) in &spec {
             assert_eq!(&fs::read(dest.join(name)).unwrap(), body, "{name}");
         }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mislabelled_targz_still_extracts() {
+        // `tar -cf bundle.tar.gz dir` writes an UNCOMPRESSED tar with a .gz
+        // name. Trusting the extension gave "Invalid Gzip header". Content
+        // sniffing is what makes this work.
+        let dir = std::env::temp_dir().join(format!("fily-mislabel-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let archive = dir.join("bundle.tar.gz");
+        {
+            let f = fs::File::create(&archive).unwrap();
+            let mut b = tar::Builder::new(f); // no GzEncoder: plain tar bytes
+            let body = b"still readable";
+            let mut h = tar::Header::new_gnu();
+            h.set_size(body.len() as u64);
+            h.set_mode(0o644);
+            h.set_mtime(0);
+            h.set_cksum();
+            b.append_data(&mut h, "note.txt", &body[..]).unwrap();
+            b.into_inner().unwrap().sync_all().unwrap();
+        }
+        assert!(!is_gzip(&archive), "fixture must not be gzip");
+
+        let dest = dir.join("out");
+        fs::create_dir_all(&dest).unwrap();
+        let res = extract_tar_to(&archive, &dest, None)
+            .unwrap_or_else(|e| panic!("mislabelled tar.gz failed: {e}"));
+        assert!(res.ok, "{:?}", res.failures);
+        assert_eq!(
+            fs::read_to_string(dest.join("note.txt")).unwrap(),
+            "still readable"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn gzip_detection_reads_magic_bytes() {
+        let dir = std::env::temp_dir().join(format!("fily-magic-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let plain = dir.join("plain.tar");
+        fs::write(&plain, b"not compressed at all").unwrap();
+        assert!(!is_gzip(&plain));
+
+        let zipped = dir.join("real.tar.gz");
+        {
+            let f = fs::File::create(&zipped).unwrap();
+            let mut enc = flate2::write::GzEncoder::new(f, flate2::Compression::fast());
+            enc.write_all(b"compressed payload").unwrap();
+            enc.finish().unwrap().sync_all().unwrap();
+        }
+        assert!(is_gzip(&zipped), "real gzip must be detected");
+
+        assert!(!is_gzip(&dir.join("missing.tar.gz")));
         let _ = fs::remove_dir_all(&dir);
     }
 
