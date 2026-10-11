@@ -151,7 +151,12 @@ fn compress_blocking(
         .map(|s| s.to_string_lossy().to_lowercase())
         .unwrap_or_default();
     match container_of(&name) {
-        Container::Zip => compress_zip_blocking(sources, dest_file, overwrite),
+        // Pass the CORRECTED path: passing dest_file here meant a name with
+        // no recognised extension produced a file with no extension at all,
+        // because the zip writer re-read the name the user actually typed.
+        Container::Zip => {
+            compress_zip_blocking(sources, dest.to_string_lossy().into_owned(), overwrite)
+        }
         Container::SevenZ => compress_7z_blocking(sources, dest, overwrite),
         Container::Rar => {
             err("Creating RAR archives is not supported. Use .7z, .zip or .tar.gz instead.")
@@ -1207,6 +1212,36 @@ mod tests {
                 "{name} nested file"
             );
         }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_name_without_an_extension_still_gets_one() {
+        // Regression: the zip branch was handed the name the user typed
+        // rather than the corrected path, so compressing to "photos" produced
+        // a file called "photos" with zip bytes inside and no extension.
+        let dir = std::env::temp_dir().join(format!("fily-noext-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("a.txt");
+        fs::write(&f, b"payload").unwrap();
+
+        for typed in ["photos", "photos.zip", "photos.7z"] {
+            let res = compress_blocking(
+                vec![f.to_string_lossy().into_owned()],
+                dir.join(typed).to_string_lossy().into_owned(),
+                Some(true),
+            )
+            .unwrap();
+            assert!(res.ok, "{typed}: {:?}", res.failures);
+        }
+        // The bare name must not survive as a file with no extension.
+        assert!(
+            !dir.join("photos").exists(),
+            "a bare name must not be created without an extension"
+        );
+        assert!(dir.join("photos.zip").exists());
+        assert!(dir.join("photos.7z").exists());
         let _ = fs::remove_dir_all(&dir);
     }
 
