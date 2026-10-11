@@ -35,6 +35,7 @@ export type GlyphKind =
   | "folder-code"
   | "folder-image"
   | "folder-open"
+  | "doc-lang"
   | "link";
 
 const DOC_BODY =
@@ -43,7 +44,15 @@ const DOC_FOLD = "M13.2 2.6v5.2a.6.6 0 0 0 .6.6h5.2z";
 
 const W = "#ffffff";
 
-function GlyphSvg({ kind }: { kind: GlyphKind }) {
+function GlyphSvg({ kind, label }: { kind: GlyphKind; label?: string }) {
+  // Fit the abbreviation to the width of the document body. The body spans
+  // roughly x=5.4..19 below the fold, so ~13.6 units of usable width; four
+  // bold characters at a readable size overflowed it, which is why longer
+  // labels shrink and the whole thing is centred on the body's midpoint
+  // (12.2) rather than the viewBox centre.
+  const len = label?.length ?? 0;
+  const labelSize = len <= 1 ? 9 : len === 2 ? 8.2 : len === 3 ? 6.9 : 5.2;
+  const labelY = 17.5;
   switch (kind) {
     case "folder":
       return (
@@ -79,6 +88,26 @@ function GlyphSvg({ kind }: { kind: GlyphKind }) {
           <path d={DOC_FOLD} fill={W} opacity={0.42} />
           <circle cx="10" cy="17.4" r="2.3" fill={W} />
           <path d="M11.6 16.2V11l5-1.2v1.9l-5 1.2z" fill={W} />
+        </>
+      );
+    case "doc-lang":
+      // The extension spelled out, knocked out of a filled document body.
+      // A generic `</>` glyph cannot tell .js from .json from .py at a glance;
+      // two or three characters can, which is why this kind exists.
+      return (
+        <>
+          <path d={DOC_BODY} fill="currentColor" />
+          <path d={DOC_FOLD} fill={W} opacity={0.42} />
+          <text
+            x="12.2"
+            y={labelY}
+            textAnchor="middle"
+            fill={W}
+            fontSize={labelSize}
+            style={{ fontFamily: "inherit", fontWeight: 700 }}
+          >
+            {label}
+          </text>
         </>
       );
     case "doc-code":
@@ -342,7 +371,7 @@ function GlyphSvg({ kind }: { kind: GlyphKind }) {
   }
 }
 
-export default function Glyph({ kind, size = 17, className }: { kind: GlyphKind; size?: number; className?: string }) {
+export default function Glyph({ kind, size = 17, className, label }: { kind: GlyphKind; size?: number; className?: string; label?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -353,7 +382,7 @@ export default function Glyph({ kind, size = 17, className }: { kind: GlyphKind;
       focusable="false"
       style={{ display: "block", flex: "none" }}
     >
-      <GlyphSvg kind={kind} />
+      <GlyphSvg kind={kind} label={label} />
     </svg>
   );
 }

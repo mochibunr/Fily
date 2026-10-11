@@ -1,9 +1,95 @@
 import Glyph, { type GlyphKind } from "./Glyph";
 import type { FileEntry } from "../types";
 
+// Code files carry their own abbreviation and their own hue.
+//
+// Every code file used to be one grey `</>` glyph, so .js, .json and .py were
+// literally indistinguishable in a list. The abbreviation does most of the
+// work -- two or three characters are read faster than a shape is recognised --
+// and the colour is a second, faster cue for the common ones.
+//
+// Hues deliberately skip the blue sector. Folders own blue: it was the reason
+// code files looked like directories in the first place. Python is the one
+// concession, as a much lighter sky than the folder's cornflower and carrying
+// a "PY" label, so it cannot be read as a directory.
+const LANG: Record<string, { label: string; color: string }> = {
+  // Markup and prose
+  md: { label: "MD", color: "#8a8a84" },
+  markdown: { label: "MD", color: "#8a8a84" },
+  mdx: { label: "MD", color: "#8a8a84" },
+  rst: { label: "RST", color: "#9c9686" },
+  tex: { label: "TeX", color: "#7f8f9c" },
+  // JavaScript family
+  js: { label: "JS", color: "#e6c84a" },
+  jsx: { label: "JS", color: "#e6c84a" },
+  mjs: { label: "JS", color: "#e6c84a" },
+  cjs: { label: "JS", color: "#e6c84a" },
+  ts: { label: "TS", color: "#35b0cc" },
+  tsx: { label: "TS", color: "#35b0cc" },
+  json: { label: "JSON", color: "#d18b2e" },
+  // Web
+  html: { label: "HTML", color: "#e07b39" },
+  htm: { label: "HTML", color: "#e07b39" },
+  css: { label: "CSS", color: "#d9569e" },
+  scss: { label: "SCSS", color: "#c74f8a" },
+  sass: { label: "SASS", color: "#c74f8a" },
+  less: { label: "LESS", color: "#a97ea8" },
+  vue: { label: "VUE", color: "#4fb87a" },
+  svelte: { label: "SVEL", color: "#e0574c" },
+  // Data and config
+  xml: { label: "XML", color: "#9b7ce8" },
+  yaml: { label: "YAML", color: "#a9a23f" },
+  yml: { label: "YAML", color: "#a9a23f" },
+  toml: { label: "TOML", color: "#b5895a" },
+  ini: { label: "INI", color: "#8fae7a" },
+  cfg: { label: "CFG", color: "#8fae7a" },
+  conf: { label: "CONF", color: "#8fae7a" },
+  env: { label: "ENV", color: "#8fae7a" },
+  envrc: { label: "ENV", color: "#8fae7a" },
+  lock: { label: "LOCK", color: "#8fae7a" },
+  // Systems
+  rs: { label: "RS", color: "#c25b34" },
+  c: { label: "C", color: "#9aa5ad" },
+  h: { label: "H", color: "#9aa5ad" },
+  cpp: { label: "C++", color: "#b07a45" },
+  cc: { label: "C++", color: "#b07a45" },
+  cxx: { label: "C++", color: "#b07a45" },
+  hpp: { label: "H++", color: "#b07a45" },
+  go: { label: "GO", color: "#2fa8a0" },
+  zig: { label: "ZIG", color: "#c9a23f" },
+  // Managed runtimes
+  py: { label: "PY", color: "#a3c93f" },
+  pyi: { label: "PY", color: "#a3c93f" },
+  java: { label: "JAVA", color: "#d2456b" },
+  kt: { label: "KT", color: "#b06fe0" },
+  kts: { label: "KT", color: "#b06fe0" },
+  scala: { label: "SCALA", color: "#c1487f" },
+  swift: { label: "SW", color: "#ef7a3e" },
+  cs: { label: "CS", color: "#63b05c" },
+  php: { label: "PHP", color: "#7f6fd8" },
+  rb: { label: "RB", color: "#e04f7a" },
+  lua: { label: "LUA", color: "#d07fb8" },
+  pl: { label: "PL", color: "#6fbf72" },
+  r: { label: "R", color: "#b07ac9" },
+  dart: { label: "DART", color: "#5fbf9e" },
+  ex: { label: "EX", color: "#8a8f9c" },
+  exs: { label: "EX", color: "#8a8f9c" },
+  erl: { label: "ERL", color: "#b5563f" },
+  hs: { label: "HS", color: "#a06fb8" },
+  // Query
+  sql: { label: "SQL", color: "#c74f9e" },
+  sqlite: { label: "LITE", color: "#c74f9e" },
+  // Shells
+  sh: { label: "SH", color: "#6f9e3f" },
+  bash: { label: "SH", color: "#6f9e3f" },
+  zsh: { label: "ZSH", color: "#6f9e3f" },
+  fish: { label: "FISH", color: "#5fa87a" },
+};
+
 interface ExtStyle {
   kind: GlyphKind;
   color: string;
+  label?: string;
 }
 
 /**
@@ -74,51 +160,18 @@ const BY_EXT: Record<string, ExtStyle> = {
   mov: { kind: "doc-video", color: "var(--ext-video)" },
   mkv: { kind: "doc-video", color: "var(--ext-video)" },
   avi: { kind: "doc-video", color: "var(--ext-video)" },
-  // Code
-  ts: { kind: "doc-code", color: "var(--ext-code)" },
-  tsx: { kind: "doc-code", color: "var(--ext-code)" },
-  js: { kind: "doc-code", color: "var(--ext-code)" },
-  jsx: { kind: "doc-code", color: "var(--ext-code)" },
-  mjs: { kind: "doc-code", color: "var(--ext-code)" },
-  rs: { kind: "doc-code", color: "var(--ext-code)" },
-  py: { kind: "doc-code", color: "var(--ext-code)" },
-  go: { kind: "doc-code", color: "var(--ext-code)" },
-  java: { kind: "doc-code", color: "var(--ext-code)" },
-  c: { kind: "doc-code", color: "var(--ext-code)" },
-  h: { kind: "doc-code", color: "var(--ext-code)" },
-  cpp: { kind: "doc-code", color: "var(--ext-code)" },
-  hpp: { kind: "doc-code", color: "var(--ext-code)" },
-  cs: { kind: "doc-code", color: "var(--ext-code)" },
-  rb: { kind: "doc-code", color: "var(--ext-code)" },
-  php: { kind: "doc-code", color: "var(--ext-code)" },
-  swift: { kind: "doc-code", color: "var(--ext-code)" },
-  kt: { kind: "doc-code", color: "var(--ext-code)" },
-  vue: { kind: "doc-code", color: "var(--ext-code)" },
-  svelte: { kind: "doc-code", color: "var(--ext-code)" },
-  css: { kind: "doc-code", color: "var(--ext-code)" },
-  scss: { kind: "doc-code", color: "var(--ext-code)" },
-  html: { kind: "doc-code", color: "var(--ext-code)" },
-  htm: { kind: "doc-code", color: "var(--ext-code)" },
-  json: { kind: "doc-code", color: "var(--ext-code)" },
-  yaml: { kind: "doc-config", color: "var(--ext-config)" },
-  yml: { kind: "doc-code", color: "var(--ext-code)" },
-  toml: { kind: "doc-config", color: "var(--ext-config)" },
-  envrc: { kind: "doc-config", color: "var(--ext-config)" },
-  lock: { kind: "doc-config", color: "var(--ext-config)" },
-  xml: { kind: "doc-code", color: "var(--ext-code)" },
-  sql: { kind: "doc-code", color: "var(--ext-code)" },
+  // Code and data files are labelled and coloured by the LANG table above, which
+  // extStyle consults first. Entries duplicated there (md, markdown, mdx, rst,
+  // tex, log) are left below only so this map stays a complete picture.
   db: { kind: "doc-database", color: "var(--ext-data)" },
   mdb: { kind: "doc-database", color: "var(--ext-data)" },
   parquet: { kind: "doc-database", color: "var(--ext-data)" },
   avro: { kind: "doc-database", color: "var(--ext-data)" },
-  sqlite: { kind: "doc-code", color: "var(--ext-code)" },
+  sqlite: { kind: "doc-database", color: "var(--ext-data)" },
   sh: { kind: "doc-terminal", color: "var(--ext-term)" },
   bat: { kind: "doc-terminal", color: "var(--ext-term)" },
   cmd: { kind: "doc-terminal", color: "var(--ext-term)" },
   ps1: { kind: "doc-terminal", color: "var(--ext-term)" },
-  bash: { kind: "doc-code", color: "var(--ext-code)" },
-  zsh: { kind: "doc-code", color: "var(--ext-code)" },
-  fish: { kind: "doc-code", color: "var(--ext-code)" },
   // Archives / packages
   zip: { kind: "doc-archive", color: "var(--ext-archive)" },
   tar: { kind: "doc-archive", color: "var(--ext-archive)" },
@@ -192,7 +245,11 @@ const CATEGORY_FALLBACK: Record<string, ExtStyle> = {
 };
 
 export function extStyle(ext: string, mime: string): ExtStyle {
-  const hit = BY_EXT[ext.toLowerCase()];
+  const key = ext.toLowerCase();
+  // LANG first: a labelled, per-language icon beats the generic kind entry.
+  const lang = LANG[key];
+  if (lang) return { kind: "doc-lang", color: lang.color, label: lang.label };
+  const hit = BY_EXT[key];
   if (hit) return hit;
   if (mime) {
     const cat = CATEGORY_FALLBACK[mime.split("/")[0]];
@@ -232,7 +289,7 @@ export default function ExtIcon({ entry, size = 17 }: { entry: FileEntry; size?:
   const s = extStyle(entry.extension, entry.mime);
   return (
     <span className="ext-icon" style={{ color: s.color }} title={entry.name}>
-      <Glyph kind={s.kind} size={size} />
+      <Glyph kind={s.kind} size={size} label={s.label} />
     </span>
   );
 }

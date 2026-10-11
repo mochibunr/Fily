@@ -4,6 +4,7 @@ import { baseName, formatDate, formatSize, joinPath, parentDir, splitPath } from
 import { parseSearchQuery, parseSizeToken, toSearchOptions } from "../src/utils/search";
 import { naturalCompare, plainCompare } from "../src/utils/sort";
 import { settingsSnapshot, sortEntries } from "../src/store/app";
+import { extStyle } from "../src/components/ExtIcon";
 
 describe("formatSize", () => {
   it("formats bytes", () => {
@@ -172,6 +173,79 @@ describe("settingsSnapshot", () => {
     expect(seen.has(settingsSnapshot(base))).toBe(false);
   });
 });
+
+describe("extStyle language icons", () => {
+  const CODES = [
+    "js", "ts", "json", "html", "css", "scss", "vue", "svelte", "xml", "yaml",
+    "toml", "rs", "py", "go", "java", "kt", "swift", "cs", "rb", "php", "c",
+    "cpp", "sh", "sql", "md",
+  ];
+
+  it("gives every code extension a short label", () => {
+    for (const ext of CODES) {
+      const s = extStyle(ext, "");
+      expect(s.label, `${ext} has no label`).toBeTruthy();
+      expect(s.label!.length, `${ext} label too long`).toBeLessThanOrEqual(4);
+      expect(s.kind).toBe("doc-lang");
+    }
+  });
+
+  it("matches the label case-insensitively", () => {
+    expect(extStyle("JS", "").label).toBe("JS");
+    expect(extStyle("Rs", "").label).toBe("RS");
+  });
+
+  it("keeps markdown grey and off the folder hue", () => {
+    // The original complaint: code files shared the folder's blue.
+    const md = extStyle("md", "");
+    expect(md.color).toBe("#8a8a84");
+    expect(md.color).not.toBe(extStyle("bin", "").color);
+  });
+
+  it("uses a distinct colour for every code extension", () => {
+    const colors = CODES.map((e) => extStyle(e, "").color);
+    expect(new Set(colors).size).toBe(CODES.length);
+  });
+
+  it("never uses a folder-like blue for code", () => {
+    // Folders sit at hue 216 (--ext-folder #5b8dd9). A code file anywhere in
+    // the blue band reads as a directory again, which is the whole problem
+    // this palette exists to avoid. Desaturated greys are exempt: they read as
+    // "plain text", which is exactly the intent for .md, .c and friends.
+    for (const ext of CODES) {
+      const [h, s] = hueSat(extStyle(ext, "").color as string);
+      const inBand = h >= 195 && h <= 245;
+      expect(inBand && s > 0.2, `${ext} looks like a folder: h=${h} s=${s}`).toBe(false);
+    }
+  });
+
+  it("still falls back gracefully for unknown extensions", () => {
+    const s = extStyle("qqq", "text/plain");
+    expect(s.kind).toBeTruthy();
+    expect(s.label).toBeUndefined();
+  });
+});
+
+/** Hue in degrees (0-360) and saturation (0-1) of a #rrggbb colour. */
+function hueSat(hex: string): [number, number] {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const mx = Math.max(r, g, b);
+  const mn = Math.min(r, g, b);
+  const d = mx - mn;
+  let h = 0;
+  if (d) {
+    if (mx === r) h = ((g - b) / d) % 6;
+    else if (mx === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  const l = (mx + mn) / 2;
+  const s = d ? d / (1 - Math.abs(2 * l - 1)) : 0;
+  return [Math.round(h), s];
+}
 
 describe("plainCompare", () => {
   it("compares case-insensitively", () => {
