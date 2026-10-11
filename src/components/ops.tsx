@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import { fsApi } from "../api/fs";
 import type { FileEntry } from "../types";
-import { isArchiveExt } from "../utils/format";
+import { isArchiveName } from "../utils/format";
 import type { CtxItem } from "./ContextMenu";
 import { baseName } from "../utils/format";
 
@@ -122,7 +122,9 @@ export function buildMenu(
   const singleEntry = single ? byPath.get(single) : undefined;
   const hasSel = paths.length > 0;
   const singleIsDir = !!singleEntry?.isDir;
-  const singleIsArchive = !!single && !singleIsDir && isArchiveExt(singleEntry?.extension ?? single.split(".").pop() ?? "");
+  // Matches what the backend can actually open, so Extract is never offered
+  // for a .7z or .tar.xz that would only produce an error.
+  const singleIsArchive = !!single && !singleIsDir && isArchiveName(singleEntry?.name ?? baseNameOf(single));
   const singleMime = singleEntry?.mime ?? "";
   // Actions that create things target the selected folder when exactly one
   // folder is selected, otherwise the current directory.

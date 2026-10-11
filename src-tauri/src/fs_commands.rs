@@ -1029,7 +1029,7 @@ pub struct OpProgress {
 
 /// Emit `op-progress`, throttled by `step`, so a huge archive does not flood
 /// the IPC channel with thousands of events.
-fn report_progress(app: Option<&tauri::AppHandle>, p: &OpProgress, step: u64) {
+pub(crate) fn report_progress(app: Option<&tauri::AppHandle>, p: &OpProgress, step: u64) {
     use tauri::Emitter;
     let Some(app) = app else { return };
     if !p.finished && p.done % step != 0 && p.done != p.total {
@@ -1060,7 +1060,29 @@ fn extract_archive_blocking(
     if !dest.is_dir() {
         return err("Destination is not a folder");
     }
-    extract_zip_to(&src, &dest, Some(app))
+    extract_to_any(&src, &dest, Some(app))
+}
+
+/// Shared extraction entry point: dispatches on the archive type so both
+/// `extract_here` and `extract_archive` handle zip and tar the same way.
+pub(crate) fn extract_to_any(
+    src: &Path,
+    dest: &Path,
+    app: Option<&tauri::AppHandle>,
+) -> Result<OpResult, String> {
+    let name = src
+        .file_name()
+        .map(|s| s.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    if !crate::archive_commands::is_extractable(&name) {
+        return err(format!(
+            "{name} is not an archive Fily can open. It extracts .zip, .tar, .tar.gz and .tgz."
+        ));
+    }
+    if name.ends_with(".zip") {
+        return extract_zip_to(src, dest, app);
+    }
+    crate::archive_commands::extract_tar_to(src, dest, app)
 }
 
 /// Shared zip extraction with zip-slip protection. Both `extract_archive`
@@ -1804,6 +1826,126 @@ mod tests {
             pos("my-work") < pos("my-work-file.txt"),
             "folder must precede file at equal depth: {names:?}"
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tar_and_targz_extract_correctly() {
+        // The backend only handled zip; a .tar.gz offered by the context menu
+        // failed with a zip-crate error. Build each and unpack it.
+        let dir = tmpdir("tar");
+
+        fn add_entries<W: std::io::Write>(b: &mut tar::Builder<W>) {
+            let body = b"hello from a tar";
+            let mut header = tar::Header::new_gnu();
+            header.set_size(body.len() as u64);
+            header.set_mode(0o644);
+            header.set_mtime(0);
+            header.set_cksum();
+            b.append_data(&mut header, "docs/readme.txt", &body[..])
+                .unwrap();
+            let csv = b"a,b\n1,2\n";
+            let mut h2 = tar::Header::new_gnu();
+            h2.set_size(csv.len() as u64);
+            h2.set_mode(0o644);
+            h2.set_mtime(0);
+            h2.set_cksum();
+            b.append_data(&mut h2, "data/values.csv", &csv[..]).unwrap();
+        }
+
+        let plain = dir.join("bundle.tar");
+        {
+            let f = fs::File::create(&plain).unwrap();
+            let mut b = tar::Builder::new(f);
+            add_entries(&mut b);
+            b.into_inner().unwrap().sync_all().unwrap();
+        }
+        let gzed = dir.join("bundle.tar.gz");
+        {
+            let f = fs::File::create(&gzed).unwrap();
+            let enc = flate2::write::GzEncoder::new(f, flate2::Compression::fast());
+            let mut b = tar::Builder::new(enc);
+            add_entries(&mut b);
+            b.into_inner()
+                .unwrap()
+                .finish()
+                .unwrap()
+                .sync_all()
+                .unwrap();
+        }
+
+        for name in ["bundle.tar", "bundle.tar.gz"] {
+            let archive = dir.join(name);
+            let dest = dir.join(format!("out-{}", name.replace('.', "_")));
+            fs::create_dir_all(&dest).unwrap();
+
+            let res = crate::archive_commands::extract_tar_to(&archive, &dest, None)
+                .unwrap_or_else(|e| panic!("{name} failed: {e}"));
+            assert!(res.ok, "{name}: {:?}", res.failures);
+            assert_eq!(
+                fs::read_to_string(dest.join("docs/readme.txt")).unwrap(),
+                "hello from a tar",
+                "{name} content wrong"
+            );
+            assert_eq!(
+                fs::read_to_string(dest.join("data/values.csv")).unwrap(),
+                "a,b\n1,2\n",
+                "{name} second entry wrong"
+            );
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tar_refuses_path_escapes() {
+        let dir = tmpdir("tarslip");
+        let archive = dir.join("evil.tar");
+        {
+            let f = fs::File::create(&archive).unwrap();
+            let mut b = tar::Builder::new(f);
+            let body = b"nope";
+            let mut header = tar::Header::new_gnu();
+            header.set_size(body.len() as u64);
+            header.set_mode(0o644);
+            header.set_mtime(0);
+            // `append_data` refuses to write a ".." path, so the hostile name
+            // goes straight into the raw header bytes -- which is exactly
+            // what an attacker would hand us.
+            {
+                header.as_mut_bytes()[..9].copy_from_slice(b"../escape");
+            }
+            header.set_cksum();
+            b.append(&header, &body[..]).unwrap();
+            b.into_inner().unwrap().sync_all().unwrap();
+        }
+        let dest = dir.join("out");
+        fs::create_dir_all(&dest).unwrap();
+        let res = crate::archive_commands::extract_tar_to(&archive, &dest, None).unwrap();
+        assert!(!res.ok, "escape must be refused");
+        assert!(!dir.join("escaped.txt").exists(), "nothing may escape");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unsupported_archives_say_what_is_supported() {
+        // Previously every non-zip produced "invalid Zip archive: Could not
+        // find EOCD", naming neither the format nor the way out.
+        assert!(crate::archive_commands::is_extractable("a.zip"));
+        assert!(crate::archive_commands::is_extractable("a.tar"));
+        assert!(crate::archive_commands::is_extractable("a.tar.gz"));
+        assert!(crate::archive_commands::is_extractable("a.tgz"));
+        assert!(!crate::archive_commands::is_extractable("a.7z"));
+        assert!(!crate::archive_commands::is_extractable("a.rar"));
+        assert!(!crate::archive_commands::is_extractable("a.tar.xz"));
+
+        let dir = tmpdir("unsupported");
+        let src = dir.join("bundle.7z");
+        fs::write(&src, b"not really a 7z").unwrap();
+        let dest = dir.join("out");
+        fs::create_dir_all(&dest).unwrap();
+        let msg = extract_to_any(&src, &dest, None).unwrap_err();
+        assert!(msg.contains(".zip"), "should name what works: {msg}");
+        assert!(!msg.contains("EOCD"), "should not be a zip error: {msg}");
         let _ = fs::remove_dir_all(&dir);
     }
 
