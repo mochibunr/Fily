@@ -23,10 +23,17 @@ const SORTS: { k: SortKey; label: string }[] = [
   { k: "type", label: "Type" },
 ];
 
-export default function Toolbar({ pane, onSearch }: { pane: number; onSearch(q: string): void }) {
+export default function Toolbar({ pane, onSearch, resetKey = 0 }: { pane: number; onSearch(q: string): void; resetKey?: number }) {
   const app = useApp();
   const p = app.panes[pane];
   const [q, setQ] = useState("");
+  // Navigating away retires the search: the keyword was scoped to the folder
+  // you were standing in, and its results describe a listing you just left.
+  // Keeping it meant the next listing showed stale matches, or the box sat
+  // full of text silently filtering a folder the query never covered.
+  useEffect(() => {
+    setQ("");
+  }, [resetKey]);
   const [focused, setFocused] = useState(false);
   const [locEditing, setLocEditing] = useState(false);
   const [locVal, setLocVal] = useState("");

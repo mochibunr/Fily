@@ -100,6 +100,34 @@ function Shell() {
   const searchFor = (pane: number): SearchState =>
     searches[pane] ?? { query: "", results: null, searching: false };
 
+  // Bumped when a pane navigates, so the toolbar can empty its search box and
+  // the results can be dropped. Keyed per pane so navigating one pane in dual
+  // mode does not wipe the other's search. The epoch itself lives in a ref so
+  // this effect depends only on the paths, and cannot re-trigger itself.
+  const [navEpoch, setNavEpoch] = useState<Record<number, number>>({});
+  const epochRef = useRef<Record<number, number>>({});
+  const lastPaths = useRef<Record<number, string>>({});
+  useEffect(() => {
+    const moved: number[] = [];
+    for (let i = 0; i < app.panes.length; i++) {
+      const path = app.panes[i]?.path;
+      if (!path) continue;
+      const prev = lastPaths.current[i];
+      lastPaths.current[i] = path;
+      // First sighting just records where we started; it is not a navigation.
+      if (prev === undefined || prev === path) continue;
+      epochRef.current[i] = (epochRef.current[i] ?? 0) + 1;
+      moved.push(i);
+    }
+    if (moved.length === 0) return;
+    setNavEpoch({ ...epochRef.current });
+    setSearches((s) => {
+      const copy = { ...s };
+      for (const i of moved) copy[i] = { query: "", results: null, searching: false };
+      return copy;
+    });
+  }, [app.panes]);
+
 
   // ---- global shortcuts ----
   useEffect(() => {
@@ -296,7 +324,7 @@ function Shell() {
     return (
       <div key={pane} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", borderRight: pane === 0 && app.dual ? "1px solid var(--separator)" : undefined }}
         onMouseDown={() => app.setFocusPane(pane)}>
-        <Toolbar pane={pane} onSearch={(q) => runSearch(pane, q)} />
+        <Toolbar pane={pane} onSearch={(q) => runSearch(pane, q)} resetKey={navEpoch[pane] ?? 0} />
         <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
           <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
             <FileView

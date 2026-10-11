@@ -184,13 +184,16 @@ export default function FileView({ pane, searchQuery, searchResults, searching, 
     return () => window.clearTimeout(t);
   }, [p?.path, p?.navDir]);
 
-  // Search results are sorted too, not returned in raw walk order. Skipping
-  // this put files and folders in one alphabetical stream, which read as
-  // random — and ignored the user's sort preference while searching.
-  const base = useMemo(
-    () => sortEntries(searchResults ?? p?.entries ?? [], app.prefs.sortKey, app.prefs.sortDesc),
-    [p?.entries, searchResults, app.prefs.sortKey, app.prefs.sortDesc],
-  );
+  // Search results arrive pre-ranked by the backend: nearest folder first, then
+  // folders before files, then by name. They must be shown in that order.
+  // Re-sorting here with sortEntries flattened the depth ranking, so a deep
+  // match buried three folders down would appear above the one sitting right
+  // next to you — the exact opposite of what the walk's breadth-first ordering
+  // bought.
+  const base = useMemo(() => {
+    if (searchResults) return searchResults;
+    return sortEntries(p?.entries ?? [], app.prefs.sortKey, app.prefs.sortDesc);
+  }, [p?.entries, searchResults, app.prefs.sortKey, app.prefs.sortDesc]);
 
   // List window math, hoisted above the thumbnail loader so that loader can
   // see which rows are actually mounted. One screenful + generous buffer on

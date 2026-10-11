@@ -121,9 +121,10 @@ fn entry_from_path(path: &Path, meta: &fs::Metadata) -> FileEntry {
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.to_string_lossy().into_owned());
-    let is_symlink = fs::symlink_metadata(path)
-        .map(|m| m.file_type().is_symlink())
-        .unwrap_or(false);
+    // Every caller passes `fs::symlink_metadata`, so the file type — symlink
+    // included — is already in hand. This used to stat the path a second time
+    // for every single entry, doubling the syscalls in a full directory walk.
+    let is_symlink = meta.file_type().is_symlink();
     let ft = meta.file_type();
     let is_dir = ft.is_dir() && !is_symlink;
     let extension = path
@@ -711,30 +712,46 @@ fn is_search_noise(path: &Path, root: &Path) -> bool {
     {
         return true;
     }
-    // Prune when any component strictly below the root is a known noise dir.
-    // This covers descendants of the root as well as the directory itself,
-    // since for `root/.cache` the relative path is just ".cache".
-    match path.strip_prefix(root) {
-        Ok(rel) => rel.components().any(|c| {
-            let name = c.as_os_str().to_string_lossy();
-            NOISE_DIRS.iter().any(|d| name.eq_ignore_ascii_case(d))
-        }),
-        // Outside the root entirely: leave the prefix rules above to decide.
-        Err(_) => false,
-    }
+    // Only the entry's own name can matter. A noise directory is pruned before the
+    // walk queues it, so nothing underneath one is ever visited — testing every
+    // path component (which also allocated a PathBuf per entry) could not
+    // change the answer, and this runs for every entry in the tree.
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| NOISE_DIRS.iter().any(|d| n.eq_ignore_ascii_case(d)))
+        .unwrap_or(false)
 }
 
-fn matches_search(path: &Path, entry: &FileEntry, opts: &SearchOptions, q: &str) -> bool {
-    if !logic::name_matches(&entry.name, q) {
+/// Decide whether a walked entry matches, from primitives rather than from a
+/// built `FileEntry`.
+///
+/// This matters for speed: `entry_from_path` runs `mime_guess` and allocates
+/// several strings per entry, and a home-folder search can stat hundreds of
+/// thousands of entries of which only a few dozen match. Deciding first and
+/// building only the winners keeps the walk from allocating for entries nobody
+/// will ever see. Each optional filter's inputs are computed lazily for the
+/// same reason — no filter means no `modified()` call, no extension, no work.
+fn matches_search(
+    name: &str,
+    path: &Path,
+    meta: &fs::Metadata,
+    is_dir: bool,
+    opts: &SearchOptions,
+    q: &str,
+) -> bool {
+    if !logic::name_matches(name, q) {
         return false;
     }
     // Directories carry no extension, so an extension filter can never match
     // one. Applying the filter to them as-is silently dropped every folder
-    // from results, which made searching for a folder ("InstaLy") look like a
-    // dead end whenever any filter text was present. Folders are containers,
-    // not typed files: the name test above already decided whether they match.
-    if !opts.extensions.is_empty() && !entry.is_dir {
-        let ext = entry.extension.to_lowercase();
+    // from results, which made searching for a folder look like a dead end
+    // whenever any filter text was present. Folders are containers, not typed
+    // files: the name test above already decided whether they match.
+    if !opts.extensions.is_empty() && !is_dir {
+        let ext = path
+            .extension()
+            .map(|s| s.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
         if !opts
             .extensions
             .iter()
@@ -744,26 +761,29 @@ fn matches_search(path: &Path, entry: &FileEntry, opts: &SearchOptions, q: &str)
         }
     }
     if let Some(min) = opts.min_size {
-        if !entry.is_dir && entry.size < min {
+        if !is_dir && meta.len() < min {
             return false;
         }
     }
     if let Some(max) = opts.max_size {
-        if !entry.is_dir && entry.size > max {
+        if !is_dir && meta.len() > max {
             return false;
         }
     }
-    if let Some(after) = opts.modified_after {
-        if entry.modified.map(|m| m < after).unwrap_or(true) {
-            return false;
+    // Only pay for the timestamp when a date filter is actually in play.
+    if opts.modified_after.is_some() || opts.modified_before.is_some() {
+        let modified = meta.modified().ok().and_then(ms);
+        if let Some(after) = opts.modified_after {
+            if modified.map(|m| m < after).unwrap_or(true) {
+                return false;
+            }
+        }
+        if let Some(before) = opts.modified_before {
+            if modified.map(|m| m > before).unwrap_or(true) {
+                return false;
+            }
         }
     }
-    if let Some(before) = opts.modified_before {
-        if entry.modified.map(|m| m > before).unwrap_or(true) {
-            return false;
-        }
-    }
-    let _ = path;
     true
 }
 
@@ -839,17 +859,47 @@ fn search_dir_blocking(dir: String, options: SearchOptions) -> Result<Vec<FileEn
             if is_search_noise(&p, &root) {
                 continue;
             }
-            let meta = match fs::symlink_metadata(&p) {
-                Ok(m) => m,
+            // `read_dir` already carries each entry's file type in the dirent
+            // on Linux, so this costs no syscall in the normal case. Getting
+            // it from here rather than from a fresh `symlink_metadata` is what
+            // removes the per-entry stat: a home-folder walk can touch
+            // hundreds of thousands of entries, and only the handful that
+            // actually match ever needed the rest of the metadata.
+            let ft = match item.file_type() {
+                Ok(f) => f,
                 Err(_) => continue,
             };
-            let entry = entry_from_path(&p, &meta);
-            if matches_search(&p, &entry, &options, &q) {
-                out.push(entry);
+            let is_dir = ft.is_dir();
+
+            let raw_name = item.file_name();
+            let name_cow = raw_name.to_string_lossy();
+            let name = name_cow.as_ref();
+
+            // Reject on the name alone before doing any real work. Stat, mime
+            // guessing and entry construction are only reached for entries
+            // that can still match, or when a filter needs metadata that the
+            // dirent does not carry.
+            let name_hit = logic::name_matches(name, &q);
+            let filters_need_meta = !options.extensions.is_empty()
+                || options.min_size.is_some()
+                || options.max_size.is_some()
+                || options.modified_after.is_some()
+                || options.modified_before.is_some();
+            if name_hit || filters_need_meta {
+                let meta = match fs::symlink_metadata(&p) {
+                    Ok(m) => m,
+                    Err(_) => continue,
+                };
+                if matches_search(name, &p, &meta, is_dir, &options, &q) {
+                    out.push(Hit {
+                        depth: dir_depth + 1,
+                        entry: entry_from_path(&p, &meta),
+                    });
+                }
             }
             // symlink_metadata reports a symlink as a non-directory, so
             // linked trees are not followed -- same as follow_links(false).
-            if meta.is_dir() && dir_depth + 1 < depth {
+            if is_dir && dir_depth + 1 < depth {
                 children.push(p);
             }
         }
@@ -857,14 +907,31 @@ fn search_dir_blocking(dir: String, options: SearchOptions) -> Result<Vec<FileEn
             queue.push_back((child, dir_depth + 1));
         }
     }
-    // Folders first, then by name — the same order the list view uses, so a
-    // search reads like a folder listing rather than an interleaved mess.
+    // Closest first, then folders before files, then by name.
+    //
+    // Depth is the point of the breadth-first walk above: results sitting in
+    // the folder you searched come before identically-named ones buried in
+    // Downloads or Documents, which is almost always the one you meant. The
+    // final sort would otherwise throw that ordering away and alphabetise the
+    // whole result set flat.
     out.sort_by(|a, b| {
-        b.is_dir
-            .cmp(&a.is_dir)
-            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        a.depth
+            .cmp(&b.depth)
+            .then_with(|| b.entry.is_dir.cmp(&a.entry.is_dir))
+            .then_with(|| {
+                a.entry
+                    .name
+                    .to_lowercase()
+                    .cmp(&b.entry.name.to_lowercase())
+            })
     });
-    Ok(out)
+    Ok(out.into_iter().map(|h| h.entry).collect())
+}
+
+/// A search result plus how far below the search root it was found.
+struct Hit {
+    depth: usize,
+    entry: FileEntry,
 }
 
 // ---------------------------------------------------------------------------
@@ -1703,6 +1770,39 @@ mod tests {
         assert_eq!(
             fs::read_to_string(dest.join("hello.txt")).unwrap(),
             "hello world"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn search_ranks_nearest_results_first() {
+        // Searching "w" in a home folder must surface the folder you are
+        // standing in before an identically-named one buried in Documents.
+        let dir = tmpdir("rank");
+        fs::create_dir_all(dir.join("work")).unwrap();
+        fs::write(dir.join("work/keep"), "a").unwrap();
+        fs::create_dir_all(dir.join("Documents/my-work")).unwrap();
+        fs::create_dir_all(dir.join("Documents/deep/deeper/deep-work")).unwrap();
+        fs::write(dir.join("Documents/my-work-file.txt"), "a").unwrap();
+
+        let hits = search_dir_blocking(dir.to_string_lossy().into_owned(), opts("work")).unwrap();
+        let names: Vec<&str> = hits.iter().map(|e| e.name.as_str()).collect();
+
+        // Depth 1 "work" leads; depth 2 file and folder follow; depth 4 last.
+        assert_eq!(names[0], "work", "nearest match must lead: {names:?}");
+        let pos = |n: &str| names.iter().position(|x| *x == n).unwrap_or(usize::MAX);
+        assert!(
+            pos("work") < pos("my-work") && pos("my-work") < pos("my-work-file.txt"),
+            "shallower must precede deeper: {names:?}"
+        );
+        assert!(
+            pos("my-work-file.txt") < pos("deep-work"),
+            "depth 4 must come last: {names:?}"
+        );
+        // Folders still lead files at the same depth.
+        assert!(
+            pos("my-work") < pos("my-work-file.txt"),
+            "folder must precede file at equal depth: {names:?}"
         );
         let _ = fs::remove_dir_all(&dir);
     }
