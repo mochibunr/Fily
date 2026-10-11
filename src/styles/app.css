@@ -943,10 +943,11 @@ mark { background: var(--accent-soft); color: inherit; border-radius: 2px; paddi
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: none; }
 }
-.fresh .file-row {
-  animation: rowIn 190ms cubic-bezier(0.2, 0.7, 0.3, 1) backwards;
-  animation-delay: calc(min(var(--i, 0), 28) * 8ms);
-}
+/* Rows do not animate in individually any more. The stagger ran up to 28*8 =
+   224ms, which landed on top of the directional slide and made a folder take
+   roughly half a second to look settled — longer than the disk read itself.
+   The list appearing is feedback enough. */
+.fresh .file-row { animation: none; }
 @keyframes gridIn {
   from { opacity: 0; transform: scale(0.92) translateY(8px); }
   to { opacity: 1; transform: none; }
@@ -1008,18 +1009,26 @@ mark { background: var(--accent-soft); color: inherit; border-radius: 2px; paddi
   background: var(--bg-hover);
 }
 /* Directional navigation: going deeper pushes in from the right, going
-   back pulls in from the left. Spatial, so the movement carries meaning. */
+   back pulls in from the left. Spatial, so the movement carries meaning.
+   Tuned down from 220ms/26px: opening a folder also swaps the rows, and the
+   two motions compounded into something that felt sluggish rather than
+   responsive. Now it reads as one movement, not two. */
 @keyframes navPushIn {
-  from { opacity: 0; transform: translateX(26px) scale(0.995); }
+  from { opacity: 0; transform: translateX(14px); }
   to { opacity: 1; transform: none; }
 }
 @keyframes navPullIn {
-  from { opacity: 0; transform: translateX(-26px) scale(0.995); }
+  from { opacity: 0; transform: translateX(-14px); }
   to { opacity: 1; transform: none; }
 }
-.nav-in { animation: navPushIn 220ms cubic-bezier(0.22, 1, 0.36, 1); }
-.nav-out { animation: navPullIn 220ms cubic-bezier(0.22, 1, 0.36, 1); }
+.nav-in { animation: navPushIn 150ms cubic-bezier(0.22, 1, 0.36, 1); }
+.nav-out { animation: navPullIn 150ms cubic-bezier(0.22, 1, 0.36, 1); }
 .nav-in .file-row, .nav-out .file-row { animation: none !important; }
+
+/* A folder is loading and these rows are the previous folder's. They stay
+   visible rather than being replaced by skeletons — you keep your place —
+   but dimmed so they are obviously not what is on disk right now. */
+.file-scroll.is-refreshing { opacity: 0.55; transition: opacity var(--dur-fast) ease; }
 
 /* Selection lands with a quick pop instead of snapping on. */
 @keyframes selectPop {

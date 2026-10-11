@@ -440,7 +440,13 @@ export default function FileView({ pane, searchQuery, searchResults, searching, 
     }
   };
 
-  if (p.loading) {
+  // Opening a folder used to replace the whole listing with skeleton rows for the
+// entire load. On a local disk that load is a few milliseconds, so all you saw
+// was a shimmer flash and a pop back — you lost your place and got motion on
+// top of it. Now the previous listing stays put, dimmed to say it is stale,
+// and skeletons only ever appear when there is nothing to show: a first load,
+// or a folder that has come back empty.
+if (p.loading && (p.entries?.length ?? 0) === 0) {
     return (
       <div className="file-scroll" aria-busy="true" aria-label="Loading folder">
         {Array.from({ length: 10 }, (_, i) => (
@@ -493,7 +499,7 @@ export default function FileView({ pane, searchQuery, searchResults, searching, 
   if (app.prefs.mode === "grid") {
     return (
       <div
-        className={`file-scroll${fresh ? " fresh" : ""}${navDir === 1 ? " nav-in" : navDir === -1 ? " nav-out" : ""}`}
+        className={`file-scroll${fresh ? " fresh" : ""}${p.loading ? " is-refreshing" : ""}${navDir === 1 ? " nav-in" : navDir === -1 ? " nav-out" : ""}`}
         ref={scrollRef}
         tabIndex={0}
         onKeyDown={onKey}
@@ -577,7 +583,7 @@ export default function FileView({ pane, searchQuery, searchResults, searching, 
 
   return (
     <div
-      className={`file-scroll${fresh ? " fresh" : ""}${navDir === 1 ? " nav-in" : navDir === -1 ? " nav-out" : ""}`}
+      className={`file-scroll${fresh ? " fresh" : ""}${p.loading ? " is-refreshing" : ""}${navDir === 1 ? " nav-in" : navDir === -1 ? " nav-out" : ""}`}
       ref={scrollRef}
       tabIndex={0}
       onKeyDown={onKey}
