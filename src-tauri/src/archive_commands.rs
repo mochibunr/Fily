@@ -31,7 +31,18 @@ fn dir_options() -> SimpleFileOptions {
 /// Create a `.zip` archive at `dest_file` containing `sources`.
 /// Each source lands under a top-level folder named after itself.
 #[tauri::command]
-pub fn compress_zip(
+pub async fn compress_zip(
+    sources: Vec<String>,
+    dest_file: String,
+    overwrite: Option<bool>,
+) -> Result<OpResult, String> {
+    crate::fs_commands::offload("Compress", move || {
+        compress_zip_blocking(sources, dest_file, overwrite)
+    })
+    .await
+}
+
+fn compress_zip_blocking(
     sources: Vec<String>,
     dest_file: String,
     overwrite: Option<bool>,
@@ -173,7 +184,11 @@ pub fn compress_zip(
 /// Extract `path` into a new sibling folder named after the archive
 /// (`photos.zip` -> `./photos/`, with ` (n)` on collision).
 #[tauri::command]
-pub fn extract_here(path: String) -> Result<OpResult, String> {
+pub async fn extract_here(path: String) -> Result<OpResult, String> {
+    crate::fs_commands::offload("Extract", move || extract_here_blocking(path)).await
+}
+
+fn extract_here_blocking(path: String) -> Result<OpResult, String> {
     let src = valid_path(&path)?;
     if !src.is_file() {
         return err("Not a file");

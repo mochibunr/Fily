@@ -205,8 +205,34 @@ fn keep_both_path(dest: &Path) -> PathBuf {
 // Commands
 // ---------------------------------------------------------------------------
 
+/// Run a blocking command on a worker thread instead of the UI thread.
+///
+/// A plain `#[tauri::command] fn` is invoked *inline* on the IPC thread (see
+/// tauri's `body_blocking` codegen), so a slow walk, hash or copy froze the
+/// whole window. Declaring the command `async` only moves it onto the async
+/// runtime, which is still shared work; wrapping the body in `spawn_blocking`
+/// hands it to a dedicated blocking thread and keeps the UI responsive.
+pub(crate) fn offload<T, F>(
+    what: &'static str,
+    f: F,
+) -> impl std::future::Future<Output = Result<T, String>>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    async move {
+        tauri::async_runtime::spawn_blocking(f)
+            .await
+            .map_err(|e| format!("{what} failed: {e}"))?
+    }
+}
+
 #[tauri::command]
-pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
+pub async fn list_dir(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
+    offload("Listing", move || list_dir_blocking(path, show_hidden)).await
+}
+
+fn list_dir_blocking(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
     let dir = valid_path(&path)?;
     let meta = fs::symlink_metadata(&dir)
         .map_err(|e| format!("Cannot access '{}': {e}", dir.display()))?;
@@ -315,7 +341,18 @@ fn resolve_dest(dest_dir: &Path, src: &Path, opts: &CopyOptions) -> Result<PathB
 }
 
 #[tauri::command]
-pub fn copy_paths(
+pub async fn copy_paths(
+    sources: Vec<String>,
+    dest_dir: String,
+    options: Option<CopyOptions>,
+) -> Result<OpResult, String> {
+    offload("Copy", move || {
+        copy_paths_blocking(sources, dest_dir, options)
+    })
+    .await
+}
+
+fn copy_paths_blocking(
     sources: Vec<String>,
     dest_dir: String,
     options: Option<CopyOptions>,
@@ -404,7 +441,18 @@ pub fn copy_paths(
 }
 
 #[tauri::command]
-pub fn move_paths(
+pub async fn move_paths(
+    sources: Vec<String>,
+    dest_dir: String,
+    options: Option<CopyOptions>,
+) -> Result<OpResult, String> {
+    offload("Move", move || {
+        move_paths_blocking(sources, dest_dir, options)
+    })
+    .await
+}
+
+fn move_paths_blocking(
     sources: Vec<String>,
     dest_dir: String,
     options: Option<CopyOptions>,
@@ -503,7 +551,11 @@ pub fn move_paths(
 }
 
 #[tauri::command]
-pub fn duplicate_path(path: String) -> Result<String, String> {
+pub async fn duplicate_path(path: String) -> Result<String, String> {
+    offload("Duplicate", move || duplicate_path_blocking(path)).await
+}
+
+fn duplicate_path_blocking(path: String) -> Result<String, String> {
     let src = valid_path(&path)?;
     let parent = src
         .parent()
@@ -515,7 +567,11 @@ pub fn duplicate_path(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn trash_paths(paths: Vec<String>) -> Result<OpResult, String> {
+pub async fn trash_paths(paths: Vec<String>) -> Result<OpResult, String> {
+    offload("Move to Trash", move || trash_paths_blocking(paths)).await
+}
+
+fn trash_paths_blocking(paths: Vec<String>) -> Result<OpResult, String> {
     let mut result = OpResult {
         ok: true,
         failures: vec![],
@@ -553,7 +609,11 @@ pub fn trash_paths(paths: Vec<String>) -> Result<OpResult, String> {
 }
 
 #[tauri::command]
-pub fn delete_permanent(paths: Vec<String>) -> Result<OpResult, String> {
+pub async fn delete_permanent(paths: Vec<String>) -> Result<OpResult, String> {
+    offload("Delete", move || delete_permanent_blocking(paths)).await
+}
+
+fn delete_permanent_blocking(paths: Vec<String>) -> Result<OpResult, String> {
     let mut result = OpResult {
         ok: true,
         failures: vec![],
@@ -643,7 +703,11 @@ fn matches_search(path: &Path, entry: &FileEntry, opts: &SearchOptions, q: &str)
 }
 
 #[tauri::command]
-pub fn search_dir(dir: String, options: SearchOptions) -> Result<Vec<FileEntry>, String> {
+pub async fn search_dir(dir: String, options: SearchOptions) -> Result<Vec<FileEntry>, String> {
+    offload("Search", move || search_dir_blocking(dir, options)).await
+}
+
+fn search_dir_blocking(dir: String, options: SearchOptions) -> Result<Vec<FileEntry>, String> {
     let root = valid_path(&dir)?;
     if !root.is_dir() {
         return err("Not a directory");
@@ -705,7 +769,11 @@ const TEXT_PREVIEW_LIMIT: u64 = 256 * 1024;
 const IMAGE_PREVIEW_LIMIT: u64 = 12 * 1024 * 1024;
 
 #[tauri::command]
-pub fn read_text_preview(path: String) -> Result<serde_json::Value, String> {
+pub async fn read_text_preview(path: String) -> Result<serde_json::Value, String> {
+    offload("Read preview", move || read_text_preview_blocking(path)).await
+}
+
+fn read_text_preview_blocking(path: String) -> Result<serde_json::Value, String> {
     let p = valid_path(&path)?;
     let meta = fs::symlink_metadata(&p).map_err(|e| format!("Cannot read: {e}"))?;
     if meta.is_dir() {
@@ -736,7 +804,11 @@ pub fn read_text_preview(path: String) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-pub fn read_image_data_url(path: String) -> Result<String, String> {
+pub async fn read_image_data_url(path: String) -> Result<String, String> {
+    offload("Read image", move || read_image_data_url_blocking(path)).await
+}
+
+fn read_image_data_url_blocking(path: String) -> Result<String, String> {
     let p = valid_path(&path)?;
     let meta = fs::symlink_metadata(&p).map_err(|e| format!("Cannot read: {e}"))?;
     if meta.len() > IMAGE_PREVIEW_LIMIT {
@@ -769,7 +841,11 @@ pub fn list_archive(path: String) -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-pub fn extract_archive(path: String, dest_dir: String) -> Result<OpResult, String> {
+pub async fn extract_archive(path: String, dest_dir: String) -> Result<OpResult, String> {
+    offload("Extract", move || extract_archive_blocking(path, dest_dir)).await
+}
+
+fn extract_archive_blocking(path: String, dest_dir: String) -> Result<OpResult, String> {
     let src = valid_path(&path)?;
     let dest = valid_path(&dest_dir)?;
     if !dest.is_dir() {
@@ -863,7 +939,11 @@ pub(crate) fn extract_zip_to(src: &Path, dest: &Path) -> Result<OpResult, String
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn file_checksum(path: String, algo: String) -> Result<String, String> {
+pub async fn file_checksum(path: String, algo: String) -> Result<String, String> {
+    offload("Checksum", move || file_checksum_blocking(path, algo)).await
+}
+
+fn file_checksum_blocking(path: String, algo: String) -> Result<String, String> {
     let p = valid_path(&path)?;
     let mut f = fs::File::open(&p).map_err(|e| format!("Cannot read: {e}"))?;
     if algo.to_lowercase() != "sha256" {
@@ -893,7 +973,11 @@ fn hex_encode(bytes: &[u8]) -> String {
 }
 
 #[tauri::command]
-pub fn dir_size(path: String) -> Result<u64, String> {
+pub async fn dir_size(path: String) -> Result<u64, String> {
+    offload("Size scan", move || dir_size_blocking(path)).await
+}
+
+fn dir_size_blocking(path: String) -> Result<u64, String> {
     let root = valid_path(&path)?;
     let mut total = 0u64;
     for item in walkdir::WalkDir::new(&root)
@@ -1090,4 +1174,111 @@ pub fn get_volumes() -> Result<Vec<Volume>, String> {
         let _ = &mut vols;
     }
     Ok(vols)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn tmpdir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "fily-test-{tag}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn opts(q: &str) -> SearchOptions {
+        SearchOptions {
+            query: q.to_string(),
+            recursive: true,
+            extensions: vec![],
+            min_size: None,
+            max_size: None,
+            modified_after: None,
+            modified_before: None,
+            max_results: None,
+            max_depth: None,
+        }
+    }
+
+    #[test]
+    fn search_finds_nested_files_and_matches_whole_names() {
+        let dir = tmpdir("search");
+        fs::write(dir.join("alpha.txt"), "a").unwrap();
+        fs::write(dir.join("report.pdf"), "a").unwrap();
+        fs::create_dir_all(dir.join("sub/deep")).unwrap();
+        fs::write(dir.join("sub/deep/report-draft.pdf"), "a").unwrap();
+        fs::write(dir.join("sub/notes.md"), "a").unwrap();
+
+        let hits = search_dir_blocking(dir.to_string_lossy().into_owned(), opts("report")).unwrap();
+        let names: Vec<&str> = hits.iter().map(|e| e.name.as_str()).collect();
+        assert!(names.contains(&"report.pdf"), "got {names:?}");
+        assert!(
+            names.contains(&"report-draft.pdf"),
+            "nested hit missing: {names:?}"
+        );
+        assert!(
+            !names.contains(&"notes.md"),
+            "unrelated file matched: {names:?}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn search_filters_by_extension_and_case_insensitively() {
+        let dir = tmpdir("search-ext");
+        fs::write(dir.join("Report.PDF"), "a").unwrap();
+        fs::write(dir.join("report.txt"), "a").unwrap();
+
+        let mut o = opts("report");
+        o.extensions = vec!["pdf".into()];
+        let hits = search_dir_blocking(dir.to_string_lossy().into_owned(), o).unwrap();
+        assert_eq!(hits.len(), 1, "extension filter leaked");
+        assert_eq!(hits[0].name, "Report.PDF");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn search_respects_max_results() {
+        let dir = tmpdir("search-cap");
+        for i in 0..40 {
+            fs::write(dir.join(format!("match-{i}.txt")), "a").unwrap();
+        }
+        let mut o = opts("match");
+        o.max_results = Some(5);
+        let hits = search_dir_blocking(dir.to_string_lossy().into_owned(), o).unwrap();
+        assert!(hits.len() <= 5, "cap ignored: {}", hits.len());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dir_size_sums_recursively() {
+        let dir = tmpdir("size");
+        fs::create_dir_all(dir.join("sub")).unwrap();
+        fs::write(dir.join("a.bin"), vec![0u8; 100]).unwrap();
+        fs::write(dir.join("sub/b.bin"), vec![0u8; 250]).unwrap();
+        let total = dir_size_blocking(dir.to_string_lossy().into_owned()).unwrap();
+        assert_eq!(total, 350, "recursive size wrong");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn list_dir_reports_expected_shape() {
+        let dir = tmpdir("list");
+        fs::write(dir.join("one.txt"), "a").unwrap();
+        fs::create_dir_all(dir.join("sub")).unwrap();
+        let entries = list_dir_blocking(dir.to_string_lossy().into_owned(), false).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert!(entries.iter().any(|e| e.is_dir && e.name == "sub"));
+        assert!(entries.iter().any(|e| !e.is_dir && e.name == "one.txt"));
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

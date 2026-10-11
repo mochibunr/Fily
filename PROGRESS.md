@@ -153,6 +153,26 @@
       map and eyeballing every icon.
       Tests: vitest 8 → 15 (natural ordering vs ICU, case tiebreak), new 6-check
       feature suite, existing suites unchanged (27/27, 7/7, 4/4, 6/6, 2/2, 4/4).
+- [x] Round 17 (search froze the app): searching a large folder froze the whole
+      window. Root cause found in Tauri's own codegen: a synchronous
+      `#[tauri::command] fn` is invoked **inline on the IPC thread**
+      (`tauri-macros` `body_blocking` calls the function directly, while
+      `body_async` wraps it in `async_runtime::spawn`), so `search_dir` walked
+      the tree on the thread that also drives the webview. **All 21 commands
+      were synchronous.**
+      Converted the 14 that can take real time — `search_dir`, `list_dir`,
+      `dir_size`, `file_checksum`, `read_text_preview`, `read_image_data_url`,
+      `copy_paths`, `move_paths`, `duplicate_path`, `trash_paths`,
+      `delete_permanent`, `extract_archive`, `compress_zip`, `extract_here` —
+      to `async fn` whose body runs inside
+      `tauri::async_runtime::spawn_blocking`, via a shared `offload()` helper.
+      Merely marking them `async` would have moved them onto the async runtime,
+      which is still shared; `spawn_blocking` gives each a dedicated thread.
+      The 7 left synchronous are genuinely instant (stat, create, rename, zip
+      central-directory read, open, places, volumes).
+      Added 5 backend tests against a real temp tree (nested hits, extension
+      filter, result cap, recursive size, listing shape) so the async split is
+      provably behaviour-preserving: cargo 15 -> 20, all passing.
 - [x] Round 8 (menu key + scroll memory): F10 / Menu key pops the context
       menu anchored at the selected row; per-directory scroll offsets
       remembered (capped at 100) and restored after Back/Forward/mouse
