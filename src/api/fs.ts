@@ -260,6 +260,20 @@ export const fsApi = {
       throw friendly(e);
     }
   },
+  /** Point the backend's folder watcher at the folders the panes are showing. */
+  async watchPanes(paths: string[]): Promise<void> {
+    try {
+      await call<void>("watch_panes", { paths });
+    } catch (e) {
+      throw friendly(e);
+    }
+  },
+
+  /** Which folders the backend currently watches. Diagnostic. */
+  async watchedPaths(): Promise<string[]> {
+    return await call<string[]>("watched_paths");
+  },
+
   async resetSettings(): Promise<FilySettings> {
     try {
       return await call<FilySettings>("reset_settings");
@@ -280,6 +294,23 @@ export async function onSettingsChanged(
   try {
     const mod = await import("@tauri-apps/api/event");
     const un = await mod.listen<FilySettings>("settings-changed", (e) => handler(e.payload));
+    return un;
+  } catch {
+    return () => {};
+  }
+}
+
+/**
+ * Subscribe to "a watched directory changed". The payload is that directory.
+ * Returns an unsubscribe function; a no-op in the browser where there is no
+ * Tauri event bus.
+ */
+export async function onFsChanged(
+  handler: (dir: string) => void,
+): Promise<() => void> {
+  try {
+    const mod = await import("@tauri-apps/api/event");
+    const un = await mod.listen<string>("fs-changed", (e) => handler(e.payload));
     return un;
   } catch {
     return () => {};

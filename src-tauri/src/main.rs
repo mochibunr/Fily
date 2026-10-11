@@ -4,6 +4,7 @@ mod fs_commands;
 mod logic;
 mod open_commands;
 mod settings;
+mod watcher;
 
 use settings::FilySettings;
 use tauri::{Emitter, Manager};
@@ -106,7 +107,12 @@ fn main() {
             get_settings,
             set_settings,
             reset_settings,
+            watcher::watch_panes,
+            watcher::watched_paths,
         ])
+        // The live fs watcher must outlive the call that sets it up, so it
+        // lives in Tauri state rather than in a local.
+        .manage(watcher::WatcherState::default())
         .setup(|app| {
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.set_title("Fily");

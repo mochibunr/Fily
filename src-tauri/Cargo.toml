@@ -27,6 +27,7 @@ bzip2 = "0.6.1"
 xz2 = "0.1.7"
 zstd = "0.14.2"
 sevenz-rust2 = "0.24.0"
+notify = "8.2.0"
 
 [features]
 default = ["custom-protocol"]

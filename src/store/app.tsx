@@ -225,6 +225,61 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
   // wrong one. Comparing payloads cannot get stuck in either state.
   const appliedRemote = useRef("");
 
+  const pendingRefresh = useRef(false);
+  // refreshAll is declared further down; reaching it through a ref keeps the
+  // listener effect from having to re-subscribe on every pane change.
+  const refreshAllRef = useRef<() => void>(() => {});
+
+  // --- Filesystem watching --------------------------------------------------
+  // Fily's own operations already refresh when they finish. This covers
+  // everything else: a file dropped in by a download, an archive unpacked from
+  // a terminal, an editor's atomic save. Without it the listing quietly
+  // disagrees with the disk until you hit refresh.
+  //
+  // Events are debounced hard. Unpacking an archive produces one event per
+  // file, and re-listing on each would mean thousands of directory reads for
+  // one extraction.
+  useEffect(() => {
+    let dispose: (() => void) | undefined;
+    let cancelled = false;
+    let timer: number | undefined;
+
+    void import("../api/fs").then(({ onFsChanged }) =>
+      onFsChanged(() => {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(() => {
+          if (inFlight.current > 0) {
+            // A read is already running and its snapshot predates this change,
+            // so re-list now would just be overwritten. Wait for it to land.
+            pendingRefresh.current = true;
+            return;
+          }
+          refreshAllRef.current();
+        }, 250);
+      }),
+    ).then((un) => {
+      if (cancelled) un();
+      else dispose = un;
+    }).catch((e) => {
+      // Same reasoning as op-progress: a silent rejection here would leave the
+      // app looking like it simply has no live refresh.
+      console.error("[fily] fs-changed listener failed:", e);
+    });
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      dispose?.();
+    };
+  }, []);
+
+  // Drain a change that arrived mid-listing once every read has landed.
+  useEffect(() => {
+    if (inFlight.current === 0 && pendingRefresh.current) {
+      pendingRefresh.current = false;
+      refreshAllRef.current();
+    }
+  });
+
   // --- Long-running operation progress -------------------------------------
   // The backend emits `op-progress` while it works (extracting an archive, for
   // instance). Entries are keyed by op id so two overlapping extractions get
@@ -398,19 +453,44 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
     window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 6000);
   }, []);
 
+  // Counts directory reads still in flight. A filesystem change that lands
+  // while one is running has to be re-listed afterwards, because that load's
+  // snapshot predates the change and would overwrite the newer contents with
+  // older ones.
+  const inFlight = useRef(0);
+
   const loadDir = useCallback(async (paneIdx: number, path: string, showHidden: boolean) => {
     // Stale-load guard: if the user navigates twice quickly, the older
     // request's results are discarded instead of flashing wrong content.
     const tok = (loadTokens.current[paneIdx] = (loadTokens.current[paneIdx] ?? 0) + 1);
+    inFlight.current += 1;
     setPanes((ps) => ps.map((p, i) => (i === paneIdx ? { ...p, loading: true, error: null } : p)));
     try {
       const entries = await fsApi.listDir(path, showHidden);
       if (loadTokens.current[paneIdx] !== tok) return;
-      setPanes((ps) => ps.map((p, i) => (i === paneIdx ? { ...p, entries, loading: false, error: null, selection: [], focusIndex: 0 } : p)));
+      setPanes((ps) =>
+        ps.map((p, i) => {
+          if (i !== paneIdx) return p;
+          // Keep whatever the user had selected that still exists. Clearing it
+          // was harmless when a load only followed a deliberate action, but
+          // loads now also arrive because the disk changed -- so a file landing
+          // from a download would drop the selection mid multi-select.
+          const stillThere = new Set(entries.map((e) => e.path));
+          const selection = p.selection.filter((path) => stillThere.has(path));
+          const focused = p.entries[p.focusIndex];
+          const focusIndex =
+            focused !== undefined && stillThere.has(focused.path)
+              ? p.focusIndex
+              : Math.min(p.focusIndex, Math.max(0, entries.length - 1));
+          return { ...p, entries, loading: false, error: null, selection, focusIndex };
+        }),
+      );
     } catch (e) {
       if (loadTokens.current[paneIdx] !== tok) return;
       const msg = e instanceof Error ? e.message : String(e);
       setPanes((ps) => ps.map((p, i) => (i === paneIdx ? { ...p, entries: [], loading: false, error: msg } : p)));
+    } finally {
+      inFlight.current = Math.max(0, inFlight.current - 1);
     }
   }, []);
 
@@ -567,6 +647,25 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
       void loadDir(i, p.path, showHidden);
     });
   }, [loadDir, showHidden]);
+
+  // Publish it for the fs-change listener above, which is created before this
+  // callback exists.
+  refreshAllRef.current = refreshAll;
+
+  // Point the backend's watcher at whatever the panes are showing. Debounced
+  // because navigating a deep tree fires a burst of path changes, and each one
+  // would otherwise tear down and rebuild the whole watch set.
+  const watchKey = panes.map((p) => p.path).join("\u0000");
+  useEffect(() => {
+    const paths = watchKey.split("\u0000").filter(Boolean);
+    if (paths.length === 0) return;
+    const t = window.setTimeout(() => {
+      void fsApi.watchPanes(paths).catch((e: Error) => {
+        console.error("[fily] watch_panes failed:", e);
+      });
+    }, 150);
+    return () => window.clearTimeout(t);
+  }, [watchKey]);
 
   const openTab = useCallback((path: string) => {
     const id = tabId++;
