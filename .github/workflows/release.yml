@@ -2,7 +2,13 @@ name: Release
 
 # Builds a prebuilt binary whenever a version tag is pushed, so users can
 # download and run Fily without installing Node or Rust. Pushing a tag like
-# `v0.1.0` publishes a GitHub Release with .deb, .rpm and .AppImage attached.
+# `v0.1.0` publishes a GitHub Release with .deb, .rpm and .AppImage attached,
+# plus .msi and a standalone .exe for Windows.
+#
+# Linux and Windows are separate jobs that share the same release rather than
+# matrix siblings on purpose: `tauri-action` creates the release if it is
+# missing and updates it if it exists, so running both at once races on the
+# create. `build-windows` waits for the Linux job to have created it.
 on:
   push:
     tags:
@@ -17,15 +23,9 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build (${{ matrix.label }})
+  build-linux:
+    name: Build (linux)
     runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: linux
-            target: x86_64-unknown-linux-gnu
     steps:
       - uses: actions/checkout@v4
 
@@ -51,6 +51,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
@@ -59,10 +61,6 @@ jobs:
 
       - run: npm ci
 
-      # Release notes come from the tag's annotation, so what gets published is
-      # whatever was written when the tag was cut. The body used to be a fixed
-      # install blurb, which meant the changelog lived only in a tag message
-      # that nobody sees on the release page.
       - name: Compose release notes from the tag
         id: notes
         env:
@@ -70,6 +68,9 @@ jobs:
           DEFAULT_NOTES: |
             Prebuilt Fily binaries — no Node.js or Rust required.
 
+            **Windows:** download the `.msi` and run it, or take the
+            standalone `Fily.exe` and run it directly (Windows may warn about
+            an unrecognised publisher — that is expected for an unsigned build).
             **Linux (recommended):** download the `.AppImage`, mark it
             executable, and run it:
             ```
@@ -80,7 +81,7 @@ jobs:
             **Fedora/openSUSE:** download the `.rpm`.
 
             If the AppImage will not start because FUSE is unavailable, extract
-            it instead: `./Fily_*.AppImage --appimage-extract && ./squashfs-root/AppRun`
+            it instead: `./Fily_*-amd64.AppImage --appimage-extract && ./squashfs-root/AppRun`
 
             Linux still needs the WebKitGTK 4.1 runtime present (`webkit2gtk-4.1`
             on Arch, `libwebkit2gtk-4.1-0` on Debian/Ubuntu). Desktop systems
@@ -118,4 +119,70 @@ jobs:
           releaseBody: ${{ steps.notes.outputs.BODY }}
           releaseDraft: false
           prerelease: false
-          args: --target ${{ matrix.target }}
+          args: --target x86_64-unknown-linux-gnu
+
+  build-windows:
+    name: Build (windows)
+    # The Linux job creates the release; this one updates it. Serialised on
+    # purpose so the two never race to create the same release.
+    needs: build-linux
+    runs-on: windows-latest
+    defaults:
+      run:
+        # The notes step is bash (it uses bash parameter expansion and git
+        # for-each-ref); the default shell here would be PowerShell.
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - run: npm ci
+
+      # Recomputed here rather than reused from the Linux job: passing the
+      # same releaseBody on update is what stops the body being blanked.
+      - name: Compose release notes from the tag
+        id: notes
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          git fetch --force --quiet origin "refs/tags/$TAG:refs/tags/$TAG" || true
+          BODY=""
+          if [ "$(git cat-file -t "refs/tags/$TAG" 2>/dev/null || true)" = "tag" ]; then
+            BODY="$(git for-each-ref --format='%(contents)' "refs/tags/$TAG")"
+          fi
+          if [ -z "${BODY//[[:space:]]/}" ]; then
+            echo "::warning::Tag $TAG has no annotation message."
+            BODY="Prebuilt Fily binaries — no Node.js or Rust required. See the Linux assets for install instructions."
+          fi
+          {
+            echo 'BODY<<FILY_RELEASE_NOTES_EOF'
+            printf '%s\n' "$BODY"
+            echo 'FILY_RELEASE_NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: Fily ${{ github.event.inputs.tag || github.ref_name }}
+          releaseBody: ${{ steps.notes.outputs.BODY }}
+          releaseDraft: false
+          prerelease: false
+          args: --target x86_64-pc-windows-msvc
