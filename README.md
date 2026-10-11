@@ -342,6 +342,6 @@ Design decisions and the reasoning behind them are recorded in
 
 ## Project status
 
-Actively developed, pre-1.0 (`0.1.0`). See [`PROGRESS.md`](PROGRESS.md) for the
+Actively developed, pre-1.0 (`0.2.0`). See [`PROGRESS.md`](PROGRESS.md) for the
 work log and [`HANDOFF.md`](HANDOFF.md) for the current architecture notes,
 verification status, and open questions.
