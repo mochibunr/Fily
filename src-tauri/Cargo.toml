@@ -1,6 +1,6 @@
 [package]
 name = "fily"
-version = "0.2.0"
+version = "0.3.0"
 description = "Fily — modern file manager"
 authors = ["Fily"]
 edition = "2021"
