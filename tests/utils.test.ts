@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FileEntry, FilySettings } from "../src/types";
-import { baseName, breadcrumb, formatDate, formatSize, joinPath, parentDir, splitPath } from "../src/utils/format";
+import { baseName, breadcrumb, formatDate, formatSize, isArchiveName, joinPath, parentDir, splitPath } from "../src/utils/format";
 import { parseSearchQuery, parseSizeToken, toSearchOptions } from "../src/utils/search";
 import { naturalCompare, plainCompare } from "../src/utils/sort";
 import { settingsSnapshot, sortEntries } from "../src/store/app";
@@ -112,6 +112,33 @@ describe("sortEntries", () => {
   it("keeps folders first when sorting by size", () => {
     const sorted = sortEntries([mk("big.txt", false), mk("tiny", true)], "size", true);
     expect(sorted[0].isDir).toBe(true);
+  });
+});
+
+describe("archive detection", () => {
+  it("recognises every format the backend can open", () => {
+    for (const n of [
+      "a.zip", "a.tar", "a.tgz", "a.tar.gz", "a.tar.bz2", "a.tbz2",
+      "a.tar.xz", "a.txz", "a.tar.zst", "a.7z",
+      // zip underneath
+      "a.jar", "a.apk", "a.whl", "a.war",
+    ]) {
+      expect(isArchiveName(n), n).toBe(true);
+    }
+  });
+
+  it("does not offer formats that cannot be opened", () => {
+    // RAR needs an external decoder; it is never offered in the menu.
+    for (const n of ["a.rar", "a.exe", "notes.txt", "photo.png", "a.zipx"]) {
+      expect(isArchiveName(n), n).toBe(false);
+    }
+  });
+
+  it("matches the whole name so compound extensions work", () => {
+    // The bug this replaced: photos.tar.gz has extension "gz", so testing the
+    // extension alone missed it and the menu never offered Extract.
+    expect(isArchiveName("photos.tar.gz")).toBe(true);
+    expect(isArchiveName("photos.tar")).toBe(true);
   });
 });
 

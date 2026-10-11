@@ -1064,7 +1064,8 @@ fn extract_archive_blocking(
 }
 
 /// Shared extraction entry point: dispatches on the archive type so both
-/// `extract_here` and `extract_archive` handle zip and tar the same way.
+/// `extract_here` and `extract_archive` handle every supported format the
+/// same way.
 pub(crate) fn extract_to_any(
     src: &Path,
     dest: &Path,
@@ -1076,13 +1077,16 @@ pub(crate) fn extract_to_any(
         .unwrap_or_default();
     if !crate::archive_commands::is_extractable(&name) {
         return err(format!(
-            "{name} is not an archive Fily can open. It extracts .zip, .tar, .tar.gz and .tgz."
+            "{name} is not an archive Fily can open. It handles zip, tar (also .gz, .bz2, .xz, .zst) and 7z."
         ));
     }
-    if name.ends_with(".zip") {
-        return extract_zip_to(src, dest, app);
+    use crate::archive_commands::Container;
+    match crate::archive_commands::container_of(&name) {
+        Container::Zip => extract_zip_to(src, dest, app),
+        Container::SevenZ => crate::archive_commands::extract_7z_to(src, dest, app),
+        Container::Rar => crate::archive_commands::extract_rar_to(src, dest),
+        Container::Tar => crate::archive_commands::extract_tar_to(src, dest, app),
     }
-    crate::archive_commands::extract_tar_to(src, dest, app)
 }
 
 /// Shared zip extraction with zip-slip protection. Both `extract_archive`
@@ -1930,21 +1934,36 @@ mod tests {
     fn unsupported_archives_say_what_is_supported() {
         // Previously every non-zip produced "invalid Zip archive: Could not
         // find EOCD", naming neither the format nor the way out.
-        assert!(crate::archive_commands::is_extractable("a.zip"));
-        assert!(crate::archive_commands::is_extractable("a.tar"));
-        assert!(crate::archive_commands::is_extractable("a.tar.gz"));
-        assert!(crate::archive_commands::is_extractable("a.tgz"));
-        assert!(!crate::archive_commands::is_extractable("a.7z"));
+        for ok in [
+            "a.zip",
+            "a.jar",
+            "a.apk",
+            "a.tar",
+            "a.tar.gz",
+            "a.tgz",
+            "a.tar.bz2",
+            "a.tar.xz",
+            "a.tar.zst",
+            "a.7z",
+        ] {
+            assert!(
+                crate::archive_commands::is_extractable(ok),
+                "{ok} should extract"
+            );
+        }
+        // RAR needs an external decoder, so it is never offered in the menu.
         assert!(!crate::archive_commands::is_extractable("a.rar"));
-        assert!(!crate::archive_commands::is_extractable("a.tar.xz"));
+        assert!(!crate::archive_commands::is_extractable("notes.txt"));
+        assert!(!crate::archive_commands::is_extractable("a.exe"));
 
         let dir = tmpdir("unsupported");
-        let src = dir.join("bundle.7z");
-        fs::write(&src, b"not really a 7z").unwrap();
+        let src = dir.join("bundle.rar");
+        fs::write(&src, b"not really a rar").unwrap();
         let dest = dir.join("out");
         fs::create_dir_all(&dest).unwrap();
         let msg = extract_to_any(&src, &dest, None).unwrap_err();
-        assert!(msg.contains(".zip"), "should name what works: {msg}");
+        assert!(msg.contains("zip"), "should name what works: {msg}");
+        assert!(msg.contains("7z"), "should list 7z as supported: {msg}");
         assert!(!msg.contains("EOCD"), "should not be a zip error: {msg}");
         let _ = fs::remove_dir_all(&dir);
     }

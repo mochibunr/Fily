@@ -119,15 +119,19 @@ export function isPdfExt(ext: string): boolean {
 
 /**
  * Archive types Fily can actually extract. Deliberately narrower than
- * "anything compressed": the menu used to offer Extract for `.7z`, `.rar`,
- * `.tar.xz` and friends that the backend then refused, so the action existed
- * only to fail. Mirrors `is_extractable` in `src-tauri/src/archive_commands.rs`.
+ * "anything compressed": the menu used to offer Extract for formats the
+ * backend then refused, so the action existed only to fail.
  *
  * Takes the full file name, not the extension: `photos.tar.gz` has the
- * extension `gz`.
+ * extension `gz`. Mirrors `is_extractable` in `src-tauri/src/archive_commands.rs`.
+ * RAR is absent on purpose — it needs an external decoder.
  */
 export function isArchiveName(name: string): boolean {
-  return /\.(zip|tar|tar\.gz|tgz)$/i.test(name);
+  return (
+    /\.(zip|tar|tgz|tar\.gz|tar\.bz2|tbz2|tar\.xz|txz|tar\.zst|7z)$/i.test(name) ||
+    // These are all zip archives underneath.
+    /\.(jar|war|apk|whl|xpi|nupkg|epub|odt)$/i.test(name)
+  );
 }
 
 /** True for anything compressed enough to wear an archive icon. */
