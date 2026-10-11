@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { FileEntry } from "../src/types";
+import type { FileEntry, FilySettings } from "../src/types";
 import { baseName, formatDate, formatSize, joinPath, parentDir, splitPath } from "../src/utils/format";
 import { parseSearchQuery, parseSizeToken, toSearchOptions } from "../src/utils/search";
 import { naturalCompare, plainCompare } from "../src/utils/sort";
-import { sortEntries } from "../src/store/app";
+import { settingsSnapshot, sortEntries } from "../src/store/app";
 
 describe("formatSize", () => {
   it("formats bytes", () => {
@@ -111,6 +111,65 @@ describe("sortEntries", () => {
   it("keeps folders first when sorting by size", () => {
     const sorted = sortEntries([mk("big.txt", false), mk("tiny", true)], "size", true);
     expect(sorted[0].isDir).toBe(true);
+  });
+});
+
+describe("settingsSnapshot", () => {
+  const base: FilySettings = {
+    theme: "dark",
+    uiZoom: 1,
+    listScale: 1,
+    showHidden: false,
+    sideWidth: 218,
+    sidebarCollapsed: false,
+    showDevices: true,
+    showPlaces: true,
+    previewVisible: false,
+    dual: false,
+    toolbar: { terminal: true, preview: true },
+  };
+
+  it("is stable across toolbar key ordering", () => {
+    // Toolbar state is a plain object; reordering keys must not read as a
+    // change, or the app would rewrite the settings file on every render.
+    expect(settingsSnapshot(base)).toBe(
+      settingsSnapshot({ ...base, toolbar: { preview: true, terminal: true } }),
+    );
+  });
+
+  it("treats a missing toolbar key as different from false", () => {
+    // Deliberate. A missing key means "no opinion", false means "off", and
+    // collapsing them would let a genuine change hide behind the guard and go
+    // unpersisted. The cost is one extra normalizing write, which is cheap.
+    expect(settingsSnapshot({ ...base, toolbar: { terminal: true } })).not.toBe(
+      settingsSnapshot({ ...base, toolbar: { terminal: true, preview: false } }),
+    );
+  });
+
+  it("distinguishes a real change to the preview panel", () => {
+    // This is the regression: the panel state must not be able to look
+    // unchanged when it has changed, or it is silently never persisted.
+    expect(settingsSnapshot(base)).not.toBe(
+      settingsSnapshot({ ...base, previewVisible: true }),
+    );
+  });
+
+  it("distinguishes every other field too", () => {
+    const variants: FilySettings[] = [
+      { ...base, theme: "nord" },
+      { ...base, uiZoom: 1.2 },
+      { ...base, listScale: 1.5 },
+      { ...base, showHidden: true },
+      { ...base, sideWidth: 300 },
+      { ...base, sidebarCollapsed: true },
+      { ...base, showDevices: false },
+      { ...base, showPlaces: false },
+      { ...base, dual: true },
+      { ...base, toolbar: { terminal: false } },
+    ];
+    const seen = new Set(variants.map(settingsSnapshot));
+    expect(seen.size).toBe(variants.length);
+    expect(seen.has(settingsSnapshot(base))).toBe(false);
   });
 });
 

@@ -155,6 +155,20 @@ function emptyPane(path: string): Pane {
   return { path, history: [path], histIndex: 0, navDir: 0, entries: [], loading: false, error: null, selection: [], focusIndex: 0 };
 }
 
+/**
+ * Stable serialization of a settings payload, used to tell "what the backend
+ * already has" from "what the user just changed". Toolbar keys are sorted so
+ * key order can never make two equal settings look different.
+ */
+export function settingsSnapshot(s: FilySettings): string {
+  const toolbar: Record<string, boolean> = {};
+  for (const k of Object.keys(s.toolbar ?? {}).sort()) toolbar[k] = !!s.toolbar[k];
+  return JSON.stringify([
+    s.theme, s.uiZoom, s.listScale, s.showHidden, s.sideWidth, s.sidebarCollapsed,
+    s.showDevices, s.showPlaces, s.previewVisible, s.dual, toolbar,
+  ]);
+}
+
 export function AppProvider({ children, initialPath }: { children: React.ReactNode; initialPath: string }) {
   const [theme, setThemeState] = useState<Theme>(() => {
     const saved = localStorage.getItem("fily.theme");
@@ -196,9 +210,19 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
   const panesRef = useRef(panes);
   panesRef.current = panes;
   const loadTokens = useRef<Record<number, number>>({});
-  // True while applying settings that came FROM the backend, so the write-through
-  // effects don't echo them straight back and start an update loop.
-  const applyingRemote = useRef(false);
+  // False until the settings file has been read. Until then the state holds
+  // only useState defaults, and writing those back would overwrite the saved
+  // file — which is why toggling the preview panel off and restarting would
+  // silently turn it back on.
+  const hydrated = useRef(false);
+  // Snapshot of what the backend is believed to hold right now. The
+  // write-through effect skips while the outgoing payload still matches it.
+  //
+  // This replaces a one-shot boolean, which had two failure modes: an applied
+  // update that changed nothing left the flag armed, so the user's very next
+  // real change was swallowed and lost; and the value it guarded was the
+  // wrong one. Comparing payloads cannot get stuck in either state.
+  const appliedRemote = useRef("");
 
   // --- Long-running operation progress -------------------------------------
   // The backend emits `op-progress` while it works (extracting an archive, for
@@ -242,7 +266,8 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
   // yet (first run / upgrade), the existing localStorage values are migrated up
   // so nobody loses their preferences.
   const applySettings = useCallback((s: FilySettings) => {
-    applyingRemote.current = true;
+    // Record what the backend now holds, before the state updates land.
+    appliedRemote.current = settingsSnapshot(s);
     setThemeState(s.theme);
     setSidebarCollapsedState(s.sidebarCollapsed);
     setShowHiddenState(s.showHidden);
@@ -282,6 +307,9 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
         }
       } catch {
         /* file backend unavailable (browser preview) — localStorage still works */
+      } finally {
+        // Only now may the write-through effect persist anything.
+        hydrated.current = true;
       }
     })();
     // Boot only. Depends on the empty-mount state by design.
@@ -307,25 +335,28 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
   // Write through to the settings file so external tools always see the
   // current state, whichever side changed it.
   useEffect(() => {
-    if (applyingRemote.current) {
-      applyingRemote.current = false;
-      return;
-    }
-    void fsApi
-      .setSettings({
-        theme,
-        uiZoom,
-        listScale,
-        showHidden,
-        sideWidth,
-        sidebarCollapsed,
-        showDevices,
-        showPlaces,
-        previewVisible,
-        dual,
-        toolbar: toolbarBtns,
-      })
-      .catch(() => {});
+    // Before the file has been read these values are only defaults, and
+    // writing them would destroy the saved settings.
+    if (!hydrated.current) return;
+    const payload: FilySettings = {
+      theme,
+      uiZoom,
+      listScale,
+      showHidden,
+      sideWidth,
+      sidebarCollapsed,
+      showDevices,
+      showPlaces,
+      previewVisible,
+      dual,
+      toolbar: toolbarBtns,
+    };
+    const snap = settingsSnapshot(payload);
+    // Identical to what the backend already holds: the write would be a no-op,
+    // and skipping keeps a remote apply from echoing straight back.
+    if (snap === appliedRemote.current) return;
+    appliedRemote.current = snap;
+    void fsApi.setSettings(payload).catch(() => {});
   }, [
     theme,
     uiZoom,
