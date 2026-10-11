@@ -325,6 +325,12 @@ button { cursor: pointer; }
 }
 /* Footer anchor: always pinned to the bottom, never collapses to 0. */
 .side-footer { margin-top: auto; flex: 0 0 auto; }
+/* While an operation is running its section takes over the pinning, so the
+   progress sits at the very bottom and the footer (Settings) is pushed up
+   above it. Two auto margins would otherwise share the free space and leave
+   the progress stranded mid-sidebar. */
+.sidebar.has-op .side-footer { margin-top: 0; }
+.op-section { margin-top: auto; flex: 0 0 auto; }
 .side-section h4 {
   margin: 0 0 4px;
   padding: 0 8px;
