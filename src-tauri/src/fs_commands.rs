@@ -946,25 +946,82 @@ pub fn list_archive(path: String) -> Result<Vec<String>, String> {
     Ok(names)
 }
 
-#[tauri::command]
-pub async fn extract_archive(path: String, dest_dir: String) -> Result<OpResult, String> {
-    offload("Extract", move || extract_archive_blocking(path, dest_dir)).await
+/// Progress for a long-running operation, emitted as `op-progress` so the UI
+/// can show a bar instead of an indefinite spinner. `finished` is sent once
+/// at the end so the UI can drop the row without polling.
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpProgress {
+    pub id: String,
+    pub label: String,
+    pub current: String,
+    pub done: u64,
+    pub total: u64,
+    pub finished: bool,
 }
 
-fn extract_archive_blocking(path: String, dest_dir: String) -> Result<OpResult, String> {
+/// Emit `op-progress`, throttled by `step`, so a huge archive does not flood
+/// the IPC channel with thousands of events.
+fn report_progress(app: Option<&tauri::AppHandle>, p: &OpProgress, step: u64) {
+    use tauri::Emitter;
+    let Some(app) = app else { return };
+    if !p.finished && p.done % step != 0 && p.done != p.total {
+        return;
+    }
+    let _ = app.emit("op-progress", p);
+}
+
+#[tauri::command]
+pub async fn extract_archive(
+    app: tauri::AppHandle,
+    path: String,
+    dest_dir: String,
+) -> Result<OpResult, String> {
+    offload("Extract", move || {
+        extract_archive_blocking(&app, path, dest_dir)
+    })
+    .await
+}
+
+fn extract_archive_blocking(
+    app: &tauri::AppHandle,
+    path: String,
+    dest_dir: String,
+) -> Result<OpResult, String> {
     let src = valid_path(&path)?;
     let dest = valid_path(&dest_dir)?;
     if !dest.is_dir() {
         return err("Destination is not a folder");
     }
-    extract_zip_to(&src, &dest)
+    extract_zip_to(&src, &dest, Some(app))
 }
 
 /// Shared zip extraction with zip-slip protection. Both `extract_archive`
 /// and `extract_here` go through this function.
-pub(crate) fn extract_zip_to(src: &Path, dest: &Path) -> Result<OpResult, String> {
+pub(crate) fn extract_zip_to(
+    src: &Path,
+    dest: &Path,
+    app: Option<&tauri::AppHandle>,
+) -> Result<OpResult, String> {
     let f = fs::File::open(&src).map_err(|e| format!("Cannot open archive: {e}"))?;
-    let mut zip = zip::ZipArchive::new(f).map_err(|e| format!("Unsupported archive: {e}"))?;
+    let archive_name = src
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "archive".into());
+    let mut zip = zip::ZipArchive::new(f).map_err(|e| {
+        // "Could not find EOCD" means the central directory is missing or
+        // truncated. The usual causes are a partial download or a file that
+        // simply is not a zip, and the bare zip-crate message says neither
+        // which file nor what to do about it.
+        format!(
+            "{archive_name} is not a readable zip ({e}). It may be an incomplete download, or not a zip file at all."
+        )
+    })?;
+    let total = zip.len() as u64;
+    let id = format!("extract:{}", src.to_string_lossy());
+    let label = format!("Extracting {archive_name}");
+    // At most ~100 events regardless of archive size.
+    let step = (total / 100).max(1);
     let mut result = OpResult {
         ok: true,
         failures: vec![],
@@ -983,6 +1040,20 @@ pub(crate) fn extract_zip_to(src: &Path, dest: &Path) -> Result<OpResult, String
             }
         };
         let name = entry.name().to_string();
+        // Progress before the work, so the bar moves as files land rather
+        // than only at the end of a large archive.
+        report_progress(
+            app,
+            &OpProgress {
+                id: id.clone(),
+                label: label.clone(),
+                current: name.clone(),
+                done: i as u64,
+                total,
+                finished: false,
+            },
+            step,
+        );
         // Zip-slip protection: refuse absolute paths and `..` escapes.
         let rel = Path::new(&name);
         if rel.is_absolute()
@@ -1037,6 +1108,18 @@ pub(crate) fn extract_zip_to(src: &Path, dest: &Path) -> Result<OpResult, String
             }
         }
     }
+    report_progress(
+        app,
+        &OpProgress {
+            id,
+            label,
+            current: String::new(),
+            done: total,
+            total,
+            finished: true,
+        },
+        1,
+    );
     Ok(result)
 }
 
@@ -1212,14 +1295,37 @@ pub fn get_places() -> Result<Vec<Place>, String> {
         .collect())
 }
 
+/// Where the app opens on launch. `$HOME`, not `/` — landing in the
+/// filesystem root is a disorienting place to start, it lists `bin`, `etc`
+/// and `usr` before anything the user recognises, and it is two keystrokes
+/// away via the path box when it is genuinely wanted. `FILY_START_DIR`
+/// overrides, for anyone who does want to launch elsewhere.
+#[tauri::command]
+pub fn get_start_dir() -> Result<String, String> {
+    if let Ok(p) = std::env::var("FILY_START_DIR") {
+        if !p.trim().is_empty() {
+            return Ok(p);
+        }
+    }
+    dirs::home_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .ok_or_else(|| "No home directory".to_string())
+}
+
 #[tauri::command]
 pub fn get_volumes() -> Result<Vec<Volume>, String> {
-    let mut vols = vec![Volume {
-        label: "Root".into(),
-        path: "/".into(),
-        total: None,
-        available: None,
-    }];
+    // Home is the seed, not `/`. A "Root" shortcut next to "Home" duplicated
+    // what the path box and "go up" already do, and in practice just invited
+    // people to open a directory full of system folders by accident.
+    let mut vols: Vec<Volume> = match dirs::home_dir() {
+        Some(home) => vec![Volume {
+            label: "Home".into(),
+            path: home.to_string_lossy().into_owned(),
+            total: None,
+            available: None,
+        }],
+        None => vec![],
+    };
     // Parse /proc/mounts for real mounted filesystems (Linux).
     #[cfg(target_os = "linux")]
     {
@@ -1241,34 +1347,20 @@ pub fn get_volumes() -> Result<Vec<Volume>, String> {
                     continue;
                 }
                 if mnt == "/" {
-                    continue; // static "Root" entry above already covers this
+                    continue; // Home is already listed; "/" is not offered
                 }
-                let label = if mnt == "/" {
-                    "Root".to_string()
-                } else {
-                    format!(
-                        "{} ({})",
-                        Path::new(mnt)
-                            .file_name()
-                            .map(|s| s.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| mnt.to_string()),
-                        dev
-                    )
-                };
+                // `mnt == "/"` is skipped above, so this is always a real mount.
+                let label = format!(
+                    "{} ({})",
+                    Path::new(mnt)
+                        .file_name()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| mnt.to_string()),
+                    dev
+                );
                 vols.push(Volume {
                     label,
                     path: mnt.to_string(),
-                    total: None,
-                    available: None,
-                });
-            }
-        }
-        if let Some(home) = dirs::home_dir() {
-            let h = home.to_string_lossy().into_owned();
-            if !vols.iter().any(|v| v.path == h) {
-                vols.push(Volume {
-                    label: "Home".into(),
-                    path: h,
                     total: None,
                     available: None,
                 });
@@ -1530,6 +1622,88 @@ mod tests {
             let names: Vec<&str> = hits.iter().map(|e| e.name.as_str()).collect();
             assert!(!names.is_empty(), "query {q} found nothing");
         }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn start_dir_is_home_not_root() {
+        let start = get_start_dir().unwrap();
+        assert!(
+            !start.is_empty() && start != "/",
+            "should open in $HOME, got {start:?}"
+        );
+        assert!(Path::new(&start).is_dir(), "{start} is not a directory");
+        assert_eq!(
+            start,
+            dirs::home_dir().unwrap().to_string_lossy(),
+            "start dir should be exactly $HOME"
+        );
+    }
+
+    #[test]
+    fn volumes_offer_home_and_never_root() {
+        let vols = get_volumes().unwrap();
+        assert!(
+            !vols.iter().any(|v| v.path == "/"),
+            "root must not be offered: {vols:?}"
+        );
+        let home = dirs::home_dir().unwrap().to_string_lossy().into_owned();
+        assert!(
+            vols.iter().any(|v| v.path == home),
+            "home must still be offered: {vols:?}"
+        );
+        // No duplicate entries for the same path.
+        let mut seen: Vec<&str> = vols.iter().map(|v| v.path.as_str()).collect();
+        seen.sort_unstable();
+        let before = seen.len();
+        seen.dedup();
+        assert_eq!(before, seen.len(), "duplicate volume paths: {vols:?}");
+    }
+
+    #[test]
+    fn unreadable_archive_error_names_the_file() {
+        // A bare zip-crate message ("Could not find EOCD") told the user
+        // nothing about which file failed or why.
+        let dir = tmpdir("badeocd");
+        let bad = dir.join("holiday-photos.zip");
+        fs::write(&bad, b"this is definitely not a zip file").unwrap();
+        let out = dir.join("out");
+        fs::create_dir_all(&out).unwrap();
+
+        let err = extract_zip_to(&bad, &out, None).unwrap_err();
+        assert!(
+            err.contains("holiday-photos.zip"),
+            "error must name the file: {err}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn extract_zip_to_still_works_with_no_progress_sink() {
+        // `app: None` is the path used by anything not running a UI; it must
+        // extract correctly rather than quietly doing nothing.
+        let dir = tmpdir("noprog");
+        let zip_path = dir.join("bundle.zip");
+        {
+            let out = fs::File::create(&zip_path).unwrap();
+            let mut w = zip::ZipWriter::new(out);
+            w.start_file(
+                "hello.txt",
+                zip::write::SimpleFileOptions::default()
+                    .compression_method(zip::CompressionMethod::Stored),
+            )
+            .unwrap();
+            std::io::Write::write_all(&mut w, b"hello world").unwrap();
+            w.finish().unwrap();
+        }
+        let dest = dir.join("unpacked");
+        fs::create_dir_all(&dest).unwrap();
+        let res = extract_zip_to(&zip_path, &dest, None).unwrap();
+        assert!(res.ok, "extract failed: {:?}", res.failures);
+        assert_eq!(
+            fs::read_to_string(dest.join("hello.txt")).unwrap(),
+            "hello world"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

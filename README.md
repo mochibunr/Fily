@@ -96,6 +96,8 @@ Enforced in the backend, not merely hidden in the UI:
 - Zip-slip refusal — archives containing absolute or `..` paths are rejected.
 - Symlink-aware listing; symlinks are never followed implicitly.
 - Cross-device moves fall back to copy + delete + report.
+- Long extractions report progress; the sidebar shows a live bar with the file
+  currently being written, and two overlapping extractions get their own rows.
 
 ---
 
@@ -255,6 +257,18 @@ fily config path                          # where the file lives
 ```
 
 Settings file: `~/.config/fily/settings.json` (override with `FILY_CONFIG_DIR`).
+
+### Where Fily opens
+
+Fily opens in your home folder. Set `FILY_START_DIR` to launch somewhere else:
+
+```sh
+FILY_START_DIR=/srv/photos fily
+```
+
+`/` is not offered as a sidebar shortcut — it is a keystroke away via the path
+box, and on its own it just lists `bin`, `etc` and `usr` before anything you
+recognise.
 
 | Setting | Type | Range / values |
 |---|---|---|

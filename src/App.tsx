@@ -429,12 +429,32 @@ function Shell() {
 }
 
 export default function App() {
-  const home = useMemo(() => {
-    const override = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_START_DIR;
-    return override || "/";
-  }, []);
+  const override = (import.meta as unknown as { env?: Record<string, string> })?.env
+    ?.VITE_START_DIR;
+  // The backend owns the start folder so it can be `$HOME` rather than `/`.
+  // Resolving it is one local IPC call, so gating the first paint on it costs
+  // nothing perceptible and avoids mounting the whole app at `/` and then
+  // yanking it to home a frame later.
+  const [start, setStart] = useState<string | null>(override || null);
+  useEffect(() => {
+    if (override) return;
+    let alive = true;
+    void fsApi
+      .getStartDir()
+      .then((d) => {
+        if (alive && d) setStart(d);
+      })
+      .catch(() => {
+        if (alive) setStart("/");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [override]);
+
+  if (!start) return <div className="boot">Fily</div>;
   return (
-    <AppProvider initialPath={home}>
+    <AppProvider initialPath={start}>
       <Shell />
     </AppProvider>
   );

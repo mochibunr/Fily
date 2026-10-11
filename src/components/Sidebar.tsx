@@ -30,7 +30,7 @@ export default function Sidebar() {
   const {
     panes, focusPane, navigate, sidebarCollapsed, setSidebarCollapsed,
     sideWidth, setSideWidth, bookmarks, removeBookmark, toast,
-    showDevices, showPlaces, setSettingsOpen,
+    showDevices, showPlaces, setSettingsOpen, ops,
   } = app;
   const [places, setPlaces] = useState<Place[]>([]);
   const [volumes, setVolumes] = useState<Volume[]>([]);
@@ -110,6 +110,8 @@ export default function Sidebar() {
     );
   }
 
+  const opList = Object.values(ops);
+
   return (
     <aside
       ref={asideRef}
@@ -117,6 +119,46 @@ export default function Sidebar() {
       style={{ width: sideWidth }}
       aria-label="Navigation"
     >
+      {opList.length > 0 && (
+        <div className="side-section">
+          <h4>In progress</h4>
+          {opList.map((op) => {
+            const pct = op.total > 0 ? Math.min(100, Math.round((op.done / op.total) * 100)) : 0;
+            const cur = op.current ? op.current.split("/").pop() : "";
+            return (
+              <div className="op-row" key={op.id} title={op.current || op.label}>
+                <div className="op-top">
+                  <span className="op-label">{op.label}</span>
+                  <span className="op-pct">{op.total > 0 ? `${pct}%` : ""}</span>
+                </div>
+                <div
+                  className="op-bar"
+                  role="progressbar"
+                  aria-label={op.label}
+                  aria-valuenow={op.total > 0 ? pct : undefined}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
+                  <div
+                    className="op-fill"
+                    style={{
+                      width: op.total > 0 ? `${pct}%` : "35%",
+                      // Indeterminate (total unknown) reads as motion, not as a
+                      // real 35% that stalls and lies about how far along it is.
+                      animation: op.total > 0 ? undefined : "op-slide 1.1s ease-in-out infinite",
+                    }}
+                  />
+                </div>
+                <div className="op-sub">
+                  {op.total > 0 ? `${op.done} of ${op.total}` : "working"}
+                  {cur ? ` · ${cur}` : ""}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <div className="side-section">
         <h4>
           Navigate

@@ -230,6 +230,14 @@ export const fsApi = {
       throw friendly(e);
     }
   },
+  /** Folder the app opens on launch: `$HOME`, not `/`. */
+  async getStartDir(): Promise<string> {
+    try {
+      return await call<string>("get_start_dir");
+    } catch (e) {
+      throw friendly(e);
+    }
+  },
 
   // --- Settings ---------------------------------------------------------
   // Backed by a JSON file so the app can also be configured from outside via

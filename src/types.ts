@@ -78,6 +78,19 @@ export interface TabState {
   histIndex: number;
 }
 
+/**
+ * Progress for a long-running operation, emitted by the backend as
+ * `op-progress`. Mirrors `OpProgress` in `src-tauri/src/fs_commands.rs`.
+ */
+export interface OpProgress {
+  id: string;
+  label: string;
+  current: string;
+  done: number;
+  total: number;
+  finished: boolean;
+}
+
 /** Mirrors `FilySettings` in `src-tauri/src/settings.rs`. */
 export interface FilySettings {
   theme: Theme;

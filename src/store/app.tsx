@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import type { DirViewPrefs, FileEntry, FilySettings, SortKey, TabState, Theme } from "../types";
+import type { DirViewPrefs, FileEntry, FilySettings, OpProgress, SortKey, TabState, Theme } from "../types";
 import { fsApi, onSettingsChanged } from "../api/fs";
 import { naturalCompare, plainCompare } from "../utils/sort";
 
@@ -133,6 +133,8 @@ interface AppCtx {
   removeBookmark(path: string): void;
   toasts: Toast[];
   toast(kind: Toast["kind"], text: string): void;
+  /** In-flight long operations, keyed by id. Empty when nothing is running. */
+  ops: Record<string, OpProgress>;
   dismissToast(id: number): void;
   setSelection(pane: number, sel: string[]): void;
   confirmState: { title: string; body: string; confirmLabel: string; onConfirm(): void } | null;
@@ -187,6 +189,7 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
   const [clipboard, setClipboard] = useState<Clipboard | null>(null);
   const [bookmarks, setBookmarks] = useState<{ label: string; path: string }[]>(() => loadList("fily.bookmarks"));
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [ops, setOps] = useState<Record<string, OpProgress>>({});
   const [confirmState, setConfirmState] = useState<AppCtx["confirmState"]>(null);
   const [conflictState, setConflictState] = useState<AppCtx["conflictState"]>(null);
   const [promptState, setPromptState] = useState<AppCtx["promptState"]>(null);
@@ -196,6 +199,42 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
   // True while applying settings that came FROM the backend, so the write-through
   // effects don't echo them straight back and start an update loop.
   const applyingRemote = useRef(false);
+
+  // --- Long-running operation progress -------------------------------------
+  // The backend emits `op-progress` while it works (extracting an archive, for
+  // instance). Entries are keyed by op id so two overlapping extractions get
+  // their own rows, and a finished op removes itself.
+  useEffect(() => {
+    let dispose: (() => void) | undefined;
+    let cancelled = false;
+    void import("@tauri-apps/api/event")
+      .then(({ listen }) =>
+        listen<OpProgress>("op-progress", (e) => {
+          const p = e.payload;
+          if (!p?.id) return;
+          setOps((prev) => {
+            if (p.finished) {
+              if (!(p.id in prev)) return prev;
+              const next = { ...prev };
+              delete next[p.id];
+              return next;
+            }
+            return { ...prev, [p.id]: p };
+          });
+        }),
+      )
+      .then((un) => {
+        if (cancelled) un();
+        else dispose = un;
+      })
+      .catch(() => {
+        /* Not running under Tauri (browser preview): no events, no rows. */
+      });
+    return () => {
+      cancelled = true;
+      dispose?.();
+    };
+  }, []);
 
   // --- Settings file: the authoritative, externally-writable store ---------
   // On boot the JSON file wins over localStorage, so a value set by
@@ -612,6 +651,7 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
     toasts,
     toast,
     dismissToast: (id) => setToasts((t) => t.filter((x) => x.id !== id)),
+    ops,
     setSelection,
     confirmState,
     askConfirm: setConfirmState,

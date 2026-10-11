@@ -32,14 +32,18 @@
   --preview-w: 288px;
 
   /* Per-type icon colors — tuned to read on both themes. */
+  /* Code, markdown, office documents and plain text share one neutral grey.
+     They used to be blue and indigo, which is exactly the folder hue, so a
+     .md or .json file read as a folder at a glance. Kind is still carried by
+     the glyph; only the hue was misleading. Blue is now folders alone. */
   --ext-pdf: #d94f3d;
   --ext-image: #3d9a50;
   --ext-audio: #9b5de5;
   --ext-video: #e08a00;
-  --ext-code: #4f8ff7;
+  --ext-code: #8a8a84;
   --ext-text: #8a8a84;
   --ext-archive: #b07d2b;
-  --ext-doc: #2f7fd0;
+  --ext-doc: #8a8a84;
   --ext-sheet: #2e9e5b;
   --ext-slide: #d0682a;
   --ext-font: #7a6ff0;
@@ -56,7 +60,7 @@
   --ext-term: #3fa66a;
   --ext-cert: #d4a017;
   --ext-cloud: #5f9ea0;
-  --ext-mark: #5b6ee1;
+  --ext-mark: #8a8a84;
 }
 
 [data-theme="light"] {

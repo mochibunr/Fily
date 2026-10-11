@@ -184,11 +184,11 @@ fn compress_zip_blocking(
 /// Extract `path` into a new sibling folder named after the archive
 /// (`photos.zip` -> `./photos/`, with ` (n)` on collision).
 #[tauri::command]
-pub async fn extract_here(path: String) -> Result<OpResult, String> {
-    crate::fs_commands::offload("Extract", move || extract_here_blocking(path)).await
+pub async fn extract_here(app: tauri::AppHandle, path: String) -> Result<OpResult, String> {
+    crate::fs_commands::offload("Extract", move || extract_here_blocking(&app, path)).await
 }
 
-fn extract_here_blocking(path: String) -> Result<OpResult, String> {
+fn extract_here_blocking(app: &tauri::AppHandle, path: String) -> Result<OpResult, String> {
     let src = valid_path(&path)?;
     if !src.is_file() {
         return err("Not a file");
@@ -208,7 +208,7 @@ fn extract_here_blocking(path: String) -> Result<OpResult, String> {
     let dest = parent.join(&folder);
     fs::create_dir(&dest).map_err(|e| format!("Cannot create folder: {e}"))?;
     // Don't leave an empty folder behind when the archive can't be read.
-    match extract_zip_to(&src, &dest) {
+    match extract_zip_to(&src, &dest, Some(app)) {
         Err(e) => {
             let _ = fs::remove_dir(&dest);
             Err(e)

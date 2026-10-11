@@ -97,6 +97,7 @@ fn main() {
             fs_commands::open_terminal,
             fs_commands::get_places,
             fs_commands::get_volumes,
+            fs_commands::get_start_dir,
             fs_commands::extract_archive,
             archive_commands::compress_zip,
             archive_commands::extract_here,
