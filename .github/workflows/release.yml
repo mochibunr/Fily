@@ -59,14 +59,15 @@ jobs:
 
       - run: npm ci
 
-      - name: Build and publish release
-        uses: tauri-apps/tauri-action@v0
+      # Release notes come from the tag's annotation, so what gets published is
+      # whatever was written when the tag was cut. The body used to be a fixed
+      # install blurb, which meant the changelog lived only in a tag message
+      # that nobody sees on the release page.
+      - name: Compose release notes from the tag
+        id: notes
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: ${{ github.event.inputs.tag || github.ref_name }}
-          releaseName: Fily ${{ github.event.inputs.tag || github.ref_name }}
-          releaseBody: |
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          DEFAULT_NOTES: |
             Prebuilt Fily binaries — no Node.js or Rust required.
 
             **Linux (recommended):** download the `.AppImage`, mark it
@@ -84,6 +85,37 @@ jobs:
             Linux still needs the WebKitGTK 4.1 runtime present (`webkit2gtk-4.1`
             on Arch, `libwebkit2gtk-4.1-0` on Debian/Ubuntu). Desktop systems
             normally already ship it.
+        run: |
+          set -euo pipefail
+          # workflow_dispatch checks out a branch, so the tag ref is not
+          # necessarily present locally yet.
+          git fetch --force --quiet origin "refs/tags/$TAG:refs/tags/$TAG" || true
+          # %(contents) alone is not enough: on a lightweight tag the ref
+          # points straight at a commit, and git falls back to the COMMIT
+          # message -- which would silently publish commit text as the
+          # changelog. Check the object type first.
+          BODY=""
+          if [ "$(git cat-file -t "refs/tags/$TAG" 2>/dev/null || true)" = "tag" ]; then
+            BODY="$(git for-each-ref --format='%(contents)' "refs/tags/$TAG")"
+          fi
+          if [ -z "${BODY//[[:space:]]/}" ]; then
+            echo "::warning::Tag $TAG has no annotation message, so the release will carry install instructions only. Create it with 'git tag -a $TAG -m ...' to publish real notes."
+            BODY="$DEFAULT_NOTES"
+          fi
+          {
+            echo 'BODY<<FILY_RELEASE_NOTES_EOF'
+            printf '%s\n' "$BODY"
+            echo 'FILY_RELEASE_NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: Fily ${{ github.event.inputs.tag || github.ref_name }}
+          releaseBody: ${{ steps.notes.outputs.BODY }}
           releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target }}
