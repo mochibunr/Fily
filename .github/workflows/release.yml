@@ -1,0 +1,89 @@
+name: Release
+
+# Builds a prebuilt binary whenever a version tag is pushed, so users can
+# download and run Fily without installing Node or Rust. Pushing a tag like
+# `v0.1.0` publishes a GitHub Release with .deb, .rpm and .AppImage attached.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build and publish (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.label }})
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux
+            target: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - run: npm ci
+
+      - name: Build and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: Fily ${{ github.event.inputs.tag || github.ref_name }}
+          releaseBody: |
+            Prebuilt Fily binaries — no Node.js or Rust required.
+
+            **Linux (recommended):** download the `.AppImage`, mark it
+            executable, and run it:
+            ```
+            chmod +x Fily_*-amd64.AppImage
+            ./Fily_*-amd64.AppImage
+            ```
+            **Debian/Ubuntu:** download the `.deb` and run `sudo apt install ./Fily_*.deb`.
+            **Fedora/openSUSE:** download the `.rpm`.
+
+            If the AppImage will not start because FUSE is unavailable, extract
+            it instead: `./Fily_*.AppImage --appimage-extract && ./squashfs-root/AppRun`
+
+            Linux still needs the WebKitGTK 4.1 runtime present (`webkit2gtk-4.1`
+            on Arch, `libwebkit2gtk-4.1-0` on Debian/Ubuntu). Desktop systems
+            normally already ship it.
+          releaseDraft: false
+          prerelease: false
+          args: --target ${{ matrix.target }}

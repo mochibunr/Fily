@@ -122,7 +122,51 @@ Enforced in the backend, not merely hidden in the UI:
 
 ---
 
-## Building from source
+## Installing
+
+### Download a prebuilt binary (no Node.js, no Rust)
+
+Get the latest release and run it:
+
+| Platform | File | Install |
+|---|---|---|
+| Any Linux | `Fily_*_amd64.AppImage` | `chmod +x Fily_*.AppImage && ./Fily_*.AppImage` |
+| Debian / Ubuntu | `Fily_*_amd64.deb` | `sudo apt install ./Fily_*.deb` |
+| Fedora / openSUSE | `Fily-*.x86_64.rpm` | `sudo dnf install ./Fily-*.rpm` |
+
+Download from [**Releases**](https://github.com/mochibunr/Fily/releases/latest).
+
+The AppImage needs no install at all. If it refuses to start because FUSE is
+unavailable, extract it instead:
+
+```sh
+./Fily_*.AppImage --appimage-extract && ./squashfs-root/AppRun
+```
+
+> Linux still needs the WebKitGTK 4.1 **runtime** (`webkit2gtk-4.1` on Arch,
+> `libwebkit2gtk-4.1-0` on Debian/Ubuntu). Desktop systems normally already
+> ship it — you do not need a compiler or Rust.
+
+### Build from source instead
+
+If you'd rather build it yourself, or want the newest unreleased changes:
+
+```sh
+git clone https://github.com/mochibunr/Fily.git
+cd Fily
+npm install
+npm run tauri build
+```
+
+Or let the installer do the whole thing — it checks prerequisites, builds, and
+sets up a launcher and icon:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mochibunr/Fily/main/install.sh | bash
+```
+
+Already cloned? Just run `./install.sh`. It is safe to re-run and stops with
+clear instructions if a prerequisite is missing rather than installing half-way.
 
 ### Prerequisites
 
@@ -144,33 +188,10 @@ sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
   libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 ```
 
-### Install
+### What the build produces
 
-Copy and paste this into a terminal. It checks your prerequisites, builds from
-source, installs the binary, and sets up a launcher and icon:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/mochibunr/Fily/main/install.sh | bash
-```
-
-If `webkit2gtk-4.1` is missing, the script tells you the exact package name for
-your distro and stops — nothing is installed half-way. It is safe to re-run: it
-rebuilds and overwrites its own files, and touches nothing else.
-
-Already cloned the repo? Just run `./install.sh`.
-
-### Build manually
-
-```sh
-git clone https://github.com/mochibunr/Fily.git
-cd Fily
-npm install
-npm run tauri build
-```
-
-Bundles are written to `src-tauri/target/release/bundle/` as `.deb`, `.rpm`, and
-`.AppImage` (the deb and rpm are each about 3.8 MB). Or just run the built
-binary directly — no install needed:
+Bundles land in `src-tauri/target/release/bundle/` (`.deb`, `.rpm`,
+`.AppImage`), or you can skip straight to the binary:
 
 ```sh
 ./src-tauri/target/release/fily
