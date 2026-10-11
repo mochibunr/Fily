@@ -171,6 +171,20 @@ button { cursor: pointer; }
 .search-box.open, .search-box.has-query { max-width: 380px; }
 .search-box:focus-within { max-width: 380px; }
 .search-box svg { flex: none; }
+/* The magnifier is a real hit target that focuses the input. It needs an
+   explicit size: a bare <label> around an SVG has no intrinsic box to click,
+   and the collapsed search box clips overflow at 32px. */
+.search-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  height: 100%;
+  /* Widen the hit area past the glyph without changing the layout. */
+  margin-left: -5px;
+  padding: 0 5px;
+  cursor: text;
+}
 .search-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .loc-input {
   flex: 1;

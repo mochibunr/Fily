@@ -66,6 +66,7 @@ export default function Toolbar({ pane, onSearch, resetKey = 0 }: { pane: number
   // Built by a tested helper rather than inline: the previous inline version
   // produced "/C:/Users" on Windows. The drive letter is the root crumb there.
   const crumbs = breadcrumb(p.path);
+  const searchId = `fily-search-pane-${pane}`;
   const tb = app.toolbarBtns;
 
   const doPaste = async () => {
@@ -182,8 +183,16 @@ export default function Toolbar({ pane, onSearch, resetKey = 0 }: { pane: number
       {/* Collapsed to just the magnifier until focused or holding a query, so
           the toolbar stays quiet until search is actually wanted. */}
       <div className={`search-box${focused ? " open" : ""}${q ? " has-query" : ""}`}>
-        <Search size={14} />
+        {/* A <label> wrapping the magnifier, so clicking it focuses the input
+            natively. Collapsed, the box is 32px wide with overflow:hidden and
+            the input is pushed out of view, so the icon was dead space: the
+            click landed on the container and nothing took focus. The id is
+            per-pane because two panes render two of these at once. */}
+        <label className="search-icon" htmlFor={searchId}>
+          <Search size={14} />
+        </label>
         <input
+          id={searchId}
           value={q}
           placeholder={`Search in ${baseName(p.path) || "/"}…`}
           aria-label="Search files"
