@@ -69,8 +69,9 @@ jobs:
             Prebuilt Fily binaries — no Node.js or Rust required.
 
             **Windows:** download the `.msi` and run it, or take the
-            standalone `Fily.exe` and run it directly (Windows may warn about
-            an unrecognised publisher — that is expected for an unsigned build).
+            `Fily_*_x64-setup.exe` installer and run that instead. Windows may
+            warn about an unrecognised publisher — that is expected for an
+            unsigned build.
             **Linux (recommended):** download the `.AppImage`, mark it
             executable, and run it:
             ```
