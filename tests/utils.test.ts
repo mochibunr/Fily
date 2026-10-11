@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import type { FileEntry } from "../src/types";
 import { baseName, formatDate, formatSize, joinPath, parentDir, splitPath } from "../src/utils/format";
 import { parseSearchQuery, parseSizeToken, toSearchOptions } from "../src/utils/search";
 import { naturalCompare, plainCompare } from "../src/utils/sort";
+import { sortEntries } from "../src/store/app";
 
 describe("formatSize", () => {
   it("formats bytes", () => {
@@ -80,6 +82,35 @@ describe("naturalCompare", () => {
     const fast = [...names].sort(naturalCompare);
     const icu = [...names].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
     expect(fast).toEqual(icu);
+  });
+});
+
+describe("sortEntries", () => {
+  const mk = (name: string, isDir: boolean, extension = ""): FileEntry => ({
+    name,
+    path: `/t/${name}`,
+    isDir,
+    isSymlink: false,
+    isHidden: false,
+    size: 100,
+    modified: 1717200000,
+    created: 1,
+    extension,
+    mime: "",
+  });
+
+  it("puts folders before files regardless of name", () => {
+    const sorted = sortEntries(
+      [mk("aaa.txt", false), mk("zzz.txt", false), mk("mmm", true), mk("bbb", true)],
+      "name",
+      false,
+    );
+    expect(sorted.map((e) => e.name)).toEqual(["bbb", "mmm", "aaa.txt", "zzz.txt"]);
+  });
+
+  it("keeps folders first when sorting by size", () => {
+    const sorted = sortEntries([mk("big.txt", false), mk("tiny", true)], "size", true);
+    expect(sorted[0].isDir).toBe(true);
   });
 });
 

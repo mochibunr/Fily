@@ -58,66 +58,75 @@ Runtime deps are deliberately few: `@tauri-apps/api`, `@tauri-apps/plugin-dialog
 
 ### Verified green as of this handoff
 
+Re-run all of these before trusting them; they were executed during this update.
+
 | Check | Command | Result |
 |---|---|---|
-| Type check | `npx tsc --noEmit` | clean, no output **[V]** |
-| Production build | `npm run build` | ✓ built in ~1.4s; JS 277.79 kB (gzip 82.22), CSS 32.72 kB (gzip 7.22) **[V]** |
-| Unit tests (TS) | `npx vitest run` | **8 passed / 8** **[V]** |
-| Unit tests (Rust, full) | `cargo test --manifest-path src-tauri/Cargo.toml` | **15 passed / 15** **[V]** |
-| Unit tests (Rust, no GUI deps) | `rustc --edition 2021 --test src-tauri/src/logic.rs -o /tmp/logic_test && /tmp/logic_test` | **6 passed / 6** **[V]** |
-| Config suite | `node /tmp/opencode/fily/configtest.mjs …` | **4/4** **[V]** |
-| Rust formatting | `rustfmt --check --edition 2021 src-tauri/src/*.rs` | exit 0, clean **[V]** |
-| Functional UI suite | `node /tmp/opencode/fily/test-ui.mjs http://127.0.0.1:1429/ /tmp/opencode/fily/ui` | **27/27** **[V]** |
-| Scale/virtualization suite | `node /tmp/opencode/fily/gaptest.mjs …` | **7/7** **[V]** |
-| Thumbnail suite | `node /tmp/opencode/fily/thumbtest.mjs …` | **4/4** **[V]** |
-| Release build | `npx tauri build` | deb 3,917,572 B (3.74 MiB), rpm 3,917,508 B, AppImage 115,628,536 B (110.27 MiB), zero warnings **[V]** |
-| Install parity | `md5sum ~/.local/bin/fily src-tauri/target/release/fily` | identical (`9fb82d80…`) **[V]** |
+| Type check | `npx tsc --noEmit` | clean **[V]** |
+| Production build | `npm run build` | passes **[V]** |
+| Unit tests (TS) | `npx vitest run` | **15 / 15** **[V]** |
+| Unit tests (Rust) | `cargo test --manifest-path src-tauri/Cargo.toml` | **20 / 20** **[V]** |
+| Unit tests (Rust, no GUI deps) | `rustc --edition 2021 --test src-tauri/src/logic.rs -o /tmp/logic_test && /tmp/logic_test` | **6 / 6** **[V]** |
+| Rust formatting | `rustfmt --check --edition 2021 src-tauri/src/*.rs` | clean **[V]** |
+| Functional UI suite | `node /tmp/opencode/fily/test-ui.mjs …` | **27 / 27** **[V]** |
+| Scale / virtualization | `node /tmp/opencode/fily/gaptest.mjs …` | **7 / 7** **[V]** |
+| Thumbnails | `node /tmp/opencode/fily/thumbtest.mjs …` | **4 / 4** **[V]** |
+| Thumbnail laziness | `node /tmp/opencode/fily/thumbperf.mjs …` | **2 / 2** **[V]** |
+| Config / CLI wiring | `node /tmp/opencode/fily/configtest.mjs …` | **4 / 4** **[V]** |
+| Minimal UI | `node /tmp/opencode/fily/minimaltest.mjs …` | **6 / 6** **[V]** |
+| New features | `node /tmp/opencode/fily/newfeat.mjs …` | **6 / 6** **[V]** |
+| Release build | `npx tauri build` | deb/rpm **3.90 MiB**, zero warnings **[V]** |
+| Install parity | `md5sum ~/.local/bin/fily src-tauri/target/release/fily` | identical **[V]** |
 
 ### What exists and is believed working
 
-- 26 registered Tauri commands ([`src-tauri/src/main.rs`](src-tauri/src/main.rs)) **[V]**.
-- Backend safety: `valid_path` (absolute + NUL rejection),
-  `is_protected_target` used by both destructive ops
-  ([`fs_commands.rs:536`](src-tauri/src/fs_commands.rs), [`:574`](src-tauri/src/fs_commands.rs)),
-  zip-slip refusal ([`:804-817`](src-tauri/src/fs_commands.rs)) **[V]**.
-- Search bounded by generation-token supersede, 200-char query clamp,
-  300,000-entry walk budget, max 5,000 results ([`:654-679`](src-tauri/src/fs_commands.rs)) **[V]**.
-- Preview caps: text 256 KB, image 12 MB ([`:704-705`](src-tauri/src/fs_commands.rs)) **[V]**.
-- Frontend: virtualized list + incremental grid, tabs, dual pane, selection,
-  inline rename, bulk rename, context menus, drag-and-drop, preview panel,
-  command palette, 9 themes, settings modal, custom titlebar, resizable sidebar **[V]**.
+- **29** registered Tauri commands ([`main.rs`](src-tauri/src/main.rs)) **[V]** —
+  up from 26; `get_settings`, `set_settings`, `reset_settings` were added.
+- **14 of them are `async fn` running inside `spawn_blocking`** so they cannot
+  block the UI thread (§G). 11 remain synchronous and are genuinely instant **[V]**.
+- Backend safety: `valid_path`, `is_protected_target` on both destructive ops,
+  zip-slip refusal **[V]**.
+- Search bounded by generation-token supersede, 200-char clamp, 300k walk
+  budget, max 5,000 results **[V]**.
+- Preview caps: text 256 KB, image 12 MB **[V]**.
+- `fily config list|get|set|reset|path` CLI, driven by
+  [`cli.rs`](src-tauri/src/cli.rs) and stored in
+  [`settings.rs`](src-tauri/src/settings.rs) **[V]**.
+- Prebuilt AppImage / deb / rpm published as a GitHub Release **[V]**.
+- Natural-order comparator replacing ICU sort, **211 ms -> 12.9 ms** on 6,000
+  names with identical ordering ([`utils/sort.ts`](src/utils/sort.ts)) **[V]**.
+- 24 filled glyphs across ~165 extensions, plus name-based folder accents
+  ([`Glyph.tsx`](src/components/Glyph.tsx), [`ExtIcon.tsx`](src/components/ExtIcon.tsx)) **[V]**.
+- Type-to-search; preview-panel and dual-pane persistence **[V]**.
 
 ### Partial / unverified
 
-- **Window drag & minimize** — proven only at the IPC layer. A compositing
-  window manager is required to complete a move; close was proven live **[V]
-  (see [`PROGRESS.md`](PROGRESS.md) "Known issues")**.
-- **Windows code paths** (Recycle Bin, `cmd /C start`, drive roots) — implemented,
-  never executed; no Windows host available **[V]**.
+- **Window drag & minimize** — proven only at the IPC layer; close was proven
+  live. Needs a real desktop session **[V]**.
+- **Windows code paths** — implemented, never executed **[V]**.
 - **Trash restore** — OS viewer only, no in-app UI **[V]**.
-- Audio/video preview is metadata + system-player handoff by design; no in-app
-  media decoding **[V]**.
+- **Live CLI re-theme of a running window** — every link verified separately
+  (watcher, emitter, subscription, apply); the end-to-end visual hop is not,
+  because the binary maps no window under Xvfb (§E) **[V]**.
+- **Search responsiveness after the offload fix** — the blocking is fixed by
+  code and codegen; the felt smoothness has not been confirmed on a desktop.
+- Audio/video preview is metadata + system-player handoff by design **[V]**.
 
-### Technical debt / gaps found during this inspection
+### Technical debt / gaps
 
-1. **All test harnesses live outside the repo** in `/tmp/opencode/fily/` — 14
-   `.mjs` files **[V]**. `/tmp` is ephemeral; these vanish on reboot or tmpfs
-   cleanup. See §F task 1.
-2. **`tests/` is not type-checked.** `tsconfig.json` has `"include": ["src"]`,
-   and `tsc --noEmit --listFilesOnly | grep -c tests/` returns `0` **[V]**.
-   `npm run lint` is just `tsc --noEmit`, so a broken test file passes silently.
-3. **No ESLint installed or configured** **[V]**. The
-   `// eslint-disable-next-line react-hooks/exhaustive-deps` comments in
-   `FileView.tsx` and `store/app.tsx` are inert intent markers, not enforced.
-4. **No CI** — no `.github/` directory **[V]**. Every gate is manual.
-5. **No version-control baseline for any source file** — HEAD is `c3961e8`
-   ("Initial commit") but it contains **only `LICENSE`**; all 56 source files are
-   still untracked, so there is nothing to diff or roll back to (§I) **[V]**.
-6. **Orphaned localStorage key**: profiles written before Round 12 still carry
-   `fily.iconSize`, which no longer has a reader (grep for `iconSize` → no
-   matches) **[V]**. Harmless dead data.
-7. **Settings dialog "Done" button** was clipped above 130% app zoom; fixed by
-   `calc(100vh / var(--zoom))` **[V]** — re-verify at extreme zoom if touched.
+1. **All test harnesses live outside the repo** in `/tmp/opencode/fily/` — 22
+   scripts, all ephemeral **[V]**. `/tmp` is RAM-backed tmpfs on this
+   machine and is lost on reboot. Highest-value fix; §F task 1.
+2. **`tests/` is not type-checked.** `tsconfig.json` has `"include": ["src"]` **[V]**.
+3. **No ESLint installed or configured** **[V]** — the
+   `eslint-disable-next-line` comments are inert markers, not enforced.
+4. **No CI on `main`.** Only `.github/workflows/release.yml` exists, and it
+   triggers on a tag **[V]**. Every gate on this branch is manual.
+5. **Orphaned localStorage key** `fily.iconSize` from pre-Round-12 profiles;
+   no reader remains **[V]**. Harmless.
+6. **Commit emails are `mochibunr@localhost`**, unlinkable by GitHub, so the
+   contributor graph does not credit them (§I) **[V]**.
+7. **Secondary-pane dir prefs accumulate in localStorage without eviction** **[V]**.
 
 ---
 
@@ -192,7 +201,10 @@ flowchart TD
 | Row/list layout change | `FileView.tsx` constants **and** `tokens.css --row-h` (they must match, see below) |
 | Menu item | `ops.tsx` |
 | Theme | `themes.ts` + `tokens.css` |
-| Icon/color for a file type | `ExtIcon.tsx` |
+| Icon/color for a file type | `ExtIcon.tsx` (+ `Glyph.tsx` for the shape, `tokens.css` for the hue) |
+| A command that could be slow | Make it `async fn` + `offload()` — see §G |
+| Anything sorted by name | `utils/sort.ts` — do **not** reintroduce `localeCompare` with options |
+| Release / publishing | `.github/workflows/release.yml` + `install.sh` |
 
 ### Critical cross-file invariant
 
@@ -202,14 +214,28 @@ flowchart TD
 explicit comment: the pitch must match *exactly*, with padding rather than
 margins, because sibling margins collapse and break the virtualizer's arithmetic **[V]**.
 
-### Persistence keys (all `localStorage`) **[V]**
+### Settings: where state actually lives **[V]**
 
-Since Round 14 the **authoritative** store is `~/.config/fily/settings.json`; `localStorage` remains a fast boot cache and is migrated up on first run.
+The **authoritative** store is `~/.config/fily/settings.json` (override the
+directory with `FILY_CONFIG_DIR`). It exists because `localStorage` lives inside
+the WebKit webview and is unreachable from any other process, which made the app
+impossible to configure from a terminal or an AI agent.
 
-legacy/other `localStorage` keys: `fily.theme`, `fily.prefs` (per-directory), `fily.hidden`, `fily.listScale`,
-`fily.uiZoom`, `fily.sideWidth`, `fily.toolbar`, `fily.side.devices`,
-`fily.side.places`, `fily.bookmarks`, `fily.devices`(served). Adding a setting
-means touching all three places: load, set, and the reset-all array.
+Eleven keys, all settable via `fily config set <key>=<value>`:
+`theme`, `uiZoom`, `listScale`, `showHidden`, `sideWidth`, `sidebarCollapsed`,
+`showDevices`, `showPlaces`, `previewVisible`, `dual`, `toolbar`.
+
+Rules that matter when touching this:
+- **Adding a setting means four edits**, not one: the struct in
+  `settings.rs`, `KEYS`, the `apply_patch` match arm, and `FilySettings::default()`.
+- Values are clamped **on write and re-clamped on read** (`normalize()`), so a
+  hand-edited or corrupt file cannot produce an unusable UI.
+- Unknown keys are **rejected**, not ignored — a typo from a script fails loudly.
+- `localStorage` still holds per-directory view prefs (`fily.prefs`) and
+  bookmarks (`fily.bookmarks`), which are not in the JSON file.
+- `previewVisible` and `dual` were added in Round 16 because they were plain
+  `useState` with **no storage at all** — turning the preview panel off did not
+  survive a restart. Check for this class of bug before assuming a setting persists.
 
 ### Two coordinate spaces in the scaled list (regression risk)
 
@@ -266,6 +292,15 @@ rustfmt --check --edition 2021 src-tauri/src/*.rs
 # Configure without the GUI (runs before the window opens; applies live)
 ./src-tauri/target/release/fily config list
 ./src-tauri/target/release/fily config set theme=nord uiZoom=1.2
+
+# Install for a user (downloads a prebuilt binary; no Node/Rust needed)
+./install.sh                # auto: package manager, or ~/.local
+./install.sh --local        # force ~/.local, never calls sudo
+./install.sh --build        # build from source instead
+./install.sh --version      # show what would be installed
+
+# Cut a release (pushes a tag; CI attaches deb/rpm/AppImage)
+git tag -a v0.2.0 -m "..." && git push origin v0.2.0
 ```
 
 ### Frontend-only functional testing (harness)
@@ -279,8 +314,14 @@ python3 -m http.server 1429 --directory dist &     # already running (pid 112111
 node /tmp/opencode/fily/test-ui.mjs  "http://127.0.0.1:1429/" /tmp/opencode/fily/ui
 node /tmp/opencode/fily/gaptest.mjs "http://127.0.0.1:1429/" /tmp/opencode/fily/gap.png
 node /tmp/opencode/fily/thumbtest.mjs "http://127.0.0.1:1429/" /tmp/opencode/fily/th.png
-node /tmp/opencode/fily/configtest.mjs "http://127.0.0.1:1429/" /tmp/opencode/fily/cfg.png
+node /tmp/opencode/fily/configtest.mjs  "http://127.0.0.1:1429/" /tmp/opencode/fily/cfg.png
+node /tmp/opencode/fily/minimaltest.mjs "http://127.0.0.1:1429/" /tmp/opencode/fily/min.png
+node /tmp/opencode/fily/thumbperf.mjs   "http://127.0.0.1:1429/"
+node /tmp/opencode/fily/newfeat.mjs     "http://127.0.0.1:1429/"
 ```
+
+**These 22 scripts are not in the repository** (§F task 1). Copy them out of
+`/tmp` before doing anything else on a machine that might reboot.
 
 They drive Chromium over raw CDP with a **stubbed IPC bridge**
 (`window.__TAURI_INTERNALS__.invoke`), so they test the React layer without Rust.
@@ -432,6 +473,41 @@ messages and clamping exercised by hand against an isolated `HOME`.
 > subscription, and the apply path are each verified separately; only the
 > framework-provided hop between the Rust emitter and the webview is untested.
 
+### Distribution — Complete (verified)
+
+- [`install.sh`](install.sh) downloads a **prebuilt** binary by default; Node,
+  Rust and a compiler are not needed. Flags: `--local` (never calls sudo),
+  `--build` (source build), `--version`.
+- Method is chosen automatically: apt/dnf/yum/zypper get a real package install,
+  everything else drops the AppImage into `~/.local`.
+- [`release.yml`](.github/workflows/release.yml) builds on a `v*` tag and
+  attaches deb/rpm/AppImage to a GitHub Release. `v0.1.0` published successfully;
+  the deb was downloaded anonymously and its binary verified to run **[V]**.
+- Verified under `env -i` with `PATH=/usr/bin:/bin` — no node, no cargo — which
+  is the only honest way to test the no-toolchain claim **[V]**.
+- Three bugs were found by running the script rather than reading it: a missing
+  `}` that made it a syntax error, `cargo` printing a blank version next to a
+  green tick when rustup had no default toolchain, and a binary installed as
+  mode 711. All fixed **[V]**.
+
+### Icons and folders — Complete (verified by rendering)
+
+24 filled glyphs across ~165 extensions. Config, terminal, database, markdown,
+keys, certs, 3D, ebooks, disc images, binaries and torrents each have their own
+emblem and hue instead of sharing a generic document. Folders get a name-based
+accent (`photos/`, `src/` vs `Documents/`) with no statting.
+
+Two mapping bugs were caught only by rendering the real map and looking at it:
+`photos` failed the word-boundary regex (plurals), and `config` itself was
+missing while `conf`/`cfg`/`ini` were all present **[V]**.
+
+### Minimal UI — Complete (verified)
+
+The `action-row` band was deleted: the status bar already showed items and
+selection, and the Paste button existed in both that row and the toolbar.
+Sorting folded into one toolbar icon; the search box collapses to a 32 px
+magnifier until focused or holding a query.
+
 ### Not implemented (deliberately, per `RESEARCH.md`)
 
 - Indexed / full-text search — filename search only, **by design**.
@@ -444,88 +520,123 @@ messages and clamping exercised by hand against an isolated `HOME`.
 
 ## F. Immediate Priorities and Next Steps
 
-### 🔴 Urgent — protect against data loss
+Several items from the previous version of this section are now **done** and
+removed: the first commit exists, the README staleness is fixed, and `PROGRESS.md`
+Round 11 no longer describes removed behaviour.
+
+### 🔴 Urgent — the only copy is in /tmp
 
 **1. Move the test harness into the repository.**
-- *Outcome:* harnesses survive reboot/tmpfs cleanup.
-- *Why:* all 14 scripts live in `/tmp/opencode/fily/` **[V]**. `gaptest.mjs` is
-  the **only** guard against the Round 13 regression; losing it means the scaled-list
-  bug can silently return.
+- *Outcome:* harnesses survive reboot or tmpfs cleanup.
+- *Why:* **22 scripts** live only in `/tmp/opencode/fily/` **[V]**. `/tmp` is
+  RAM-backed tmpfs here. `gaptest.mjs` is the only guard against the Round 13
+  scaled-list regression; `newfeat.mjs` guards the Round 16 behaviour.
 - *Inspect:* `/tmp/opencode/fily/*.mjs`.
-- *Blockers:* none.
-- *Accept:* scripts committed under e.g. `tests/harness/`, `README` line added
-  explaining the `python3 -m http.server 1429 --directory dist` prerequisite, and
-  `npm run test:ui` style scripts added to `package.json`.
-- *Validate:* run all three suites from their new location, expect 27/27, 7/7, 4/4.
-
-**2. Add a regression test for list row pitch.**
-- *Outcome:* a test asserts `ROW_H` equals the computed `.file-row` height, so a
-  future CSS/TS divergence fails loudly.
-- *Why:* this mismatch silently breaks virtualization; the app only notices on
-  scaled lists.
-- *Inspect:* `FileView.tsx:10`, `tokens.css:30`, `app.css:462`.
-- *Accept:* test fails when `--row-h` is changed without `ROW_H`.
-
-**3. Bring `tests/` under type checking.**
-- *Outcome:* `npm run lint` covers test files.
-- *Why:* `tsconfig.json` `include` is `["src"]`; test files are unchecked **[V]**.
-- *Accept:* `tsc --noEmit` reports errors in `tests/`; `npm run lint` still clean.
+- *Blockers:* none. Do this first, before anything can clean `/tmp`.
+- *Accept:* scripts committed under `tests/harness/`, a README line documenting
+  the `python3 -m http.server 1429 --directory dist` prerequisite, and npm
+  scripts (`npm run test:ui` etc.).
+- *Validate:* all suites pass from their new location — 27/27, 7/7, 4/4, 2/2,
+  4/4, 6/6, 6/6.
 
 ### 🟡 High priority
 
+**2. Confirm search is smooth on a real desktop.**
+- *Outcome:* user confirms typing in a large folder no longer freezes the window.
+- *Why:* the UI thread no longer runs the walk (§G), but the fix cannot be
+  observed in this environment because the binary maps no X window under Xvfb.
+- *Inspect:* `fs_commands.rs` `offload`, `App.tsx` search debounce (250 ms).
+- *Accept:* no visible freeze while searching `~`. If still sluggish, the next
+  suspect is the debounce — an 8-character query starts up to 8 walks — not the
+  thread.
+- *Validate:* manual pass on the user's KDE session.
+
+**3. Confirm live CLI re-configuration on a real desktop.**
+- *Outcome:* `fily config set theme=nord` visibly re-themes an open window.
+- *Why:* every link is verified separately (watcher, emitter, subscription,
+  apply); the framework hop between them is unverified.
+- *Accept:* user reports the window changed without a restart.
+
 **4. Exercise destructive paths in the installed app.**
 - *Outcome:* confidence in the highest-risk code.
-- *Why:* copy/move conflicts, Trash, and zip-extract have never been run
-  end-to-end in the real binary **[V]** (`PROGRESS.md` next steps #1).
-- *Inspect:* `fs_commands.rs` conflict pre-flight; `Dialogs.tsx` conflict UI.
-- *Accept:* a conflict produces Replace/Keep both/Skip exactly once; a
-  protected path is refused by the backend even if invoked directly over IPC.
-- *Validate:* manual pass in the installed app under Xvfb + screenshots.
+- *Why:* copy/move conflicts, Trash and zip-extract have never been run
+  end-to-end in the real binary.
+- *Accept:* a conflict yields Replace / Keep both / Skip exactly once; a
+  protected path is refused by the backend even when invoked directly over IPC.
 
-**5. Commit the source — and do not push before this lands.**
-- *Outcome:* a real baseline exists so changes are diffable and recoverable, and
-  the GitHub repo is not empty.
-- *Why:* HEAD `c3961e8` is named "Initial commit" but contains **only `LICENSE`**;
-  all 56 source files remain untracked (§I) **[V]**. A push right now would
-  publish an empty repository. MIT `LICENSE` is already in place.
-- *Inspect:* §I; decide whether `src-tauri/gen/` (312 KB of Tauri-generated
-  schemas, which Tauri's own template gitignores) should be excluded.
-- *Blockers:* copy the harnesses out of `/tmp` first (task 1).
-- *Accept:* `git ls-files | wc -l` ≥ 56; `git ls-tree -r --name-only HEAD` lists
-  `src/App.tsx` and `src-tauri/src/main.rs`; `node_modules/`, `dist/`,
-  `src-tauri/target/` absent from `git ls-files`.
-- *Note:* `origin` is already configured to `https://github.com/mochibunr/Fily.git`,
-  so a mistimed `git push -u` is a one-command mistake.
-
-**6. Confirm live CLI re-configuration on a real desktop session.**
-- *Outcome:* `fily config set theme=nord` visibly re-themes an already-open window.
-- *Why:* every link is verified separately (watcher, emitter, subscription,
-  apply), but the binary maps **no X window** under Xvfb without a WM
-  (`xdotool search` returns nothing), so the end-to-end visual hop is untested **[V]
-  — see the Known gap note in §E**.
-- *Inspect:* `src-tauri/src/main.rs` watcher, `store/app.tsx` subscription.
-- *Accept:* user runs `fily config set theme=nord` with Fily open and reports the
-  window changed without a restart.
-
-**7. Confirm window drag/minimize on a real desktop session.**
-- *Outcome:* a user-confirmed answer.
-- *Why:* cannot be completed headless — needs a compositor/WM **[V]**.
-- *Accept:* user reports dragging and minimizing work on KDE Plasma.
+**5. Add CI on `main`.**
+- *Outcome:* the gates run on every push, not just tags.
+- *Why:* type check, vitest, cargo test and rustfmt are all manual **[V]**; the
+  only workflow triggers on `v*` **[V]**.
+- *Accept:* a `ci.yml` runs `npm run lint`, `npm test`, `cargo test`,
+  `rustfmt --check`, and the `logic.rs` dependency-free test; the badge is green
+  on the commit.
 
 ### 🟢 Later
 
-8. In-app Trash restore UI (`trash::os_limited::list`).
-9. Duplicate-finder review UI over existing checksum/size commands.
-10. Windows smoke test (Recycle Bin, drive roots, `cmd /C start`).
-11. Consider a real linter (ESLint is entirely absent; disable-comments are inert **[V]**).
-12. Consider CI (none exists **[V]**) running the three gates in §D.
-13. Add screenshots under `docs/` for the published README (none exist yet).
+6. Bring `tests/` under type checking (`tsconfig.json` `include` is `["src"]`).
+7. Add a regression test pinning `ROW_H` to `--row-h`.
+8. Adopt a real linter — ESLint is entirely absent and the disable-comments are inert.
+9. Evict secondary-pane dir prefs from `localStorage`; they grow unbounded.
+10. In-app Trash restore UI (`trash::os_limited::list`).
+11. Duplicate-finder review UI over the existing checksum/size commands.
+12. Windows smoke test (Recycle Bin, drive roots, `cmd /C start`).
+13. Consider ARM and Windows release targets — the workflow is x86_64 Linux only.
+14. Screenshots under `docs/`; the README currently has none.
 
 ---
 
 ## G. Known Bugs and Investigation Notes
 
 ### Resolved — keep the reasoning, these are easy to reintroduce
+
+**Searching a large folder froze the whole window (user-reported).**
+- *Root cause, verified in Tauri's codegen:* a synchronous `#[tauri::command] fn`
+  is invoked **inline on the IPC thread** — `tauri-macros`' `body_blocking`
+  expands to a direct call, while `body_async` wraps it in
+  `async_runtime::spawn`. So `search_dir` walked the tree on the thread that
+  drives the webview. **All 21 commands were synchronous.**
+- *Fix:* 14 commands are now `async fn` whose body runs inside
+  `tauri::async_runtime::spawn_blocking` via a shared `offload()` helper.
+  Marking them merely `async` would move them onto the shared async runtime and
+  would **not** have fixed a CPU-bound walk. 11 instant commands stay sync.
+- *Guard:* 5 backend tests over a real temp tree, because splitting a command
+  into an async wrapper plus a blocking body is exactly the refactor that
+  silently changes semantics.
+
+**Opening any large folder stalled for ~200 ms.**
+- *Root cause:* `localeCompare(name, undefined, { numeric: true })` in
+  `sortEntries`, called ~75,000 times for 6,000 entries on **every** navigation.
+- *Measured:* 211 ms vs 12.9 ms for the hand-rolled comparator — **16x**, with
+  zero ordering differences against ICU across 6,000 names.
+- *Trap:* the first version returned `0` for `"Apple"` vs `"apple"`. The
+  filesystem is case-sensitive, so those are different files and a `0` leaves
+  their order to chance. Pinned by a test.
+
+**Scrolling felt like jitter (worst frame 46 ms).**
+- *Root cause:* `overflow-anchor` was enabled; the browser compensated for
+  virtualized rows mounting above the viewport by nudging `scrollTop`.
+- *Fix:* `overflow-anchor: none` on `.file-scroll`. Worst frame **46 -> 27 ms**.
+
+**Thumbnails decoded for off-screen rows.**
+- *Root cause:* the loader used the virtualizer's window (14 rows of lead, ~40
+  trailing) rather than the visible range — ~40 needless decodes per scroll
+  position in a photo folder.
+- *Measured:* 21 decodes for 19 visible rows (was ~60); 331 total after
+  scrolling past 353 rows (was 1200+).
+
+**Type-to-search never grew past one character.**
+- *Root cause:* the accumulator was correct, but focusing the search box after
+  the first keystroke made the next key look like "already typing" and hit the
+  early return. Replaced with a hand-off: the first printable key focuses the
+  box and seeds the query, later keys land natively.
+
+**Preview panel came back on after every restart (user-reported).**
+- *Root cause:* `previewVisible` and `dual` were plain `useState` with **no
+  storage at all** — not a settings-file bug, the values were never written.
+  Both are now settings in `settings.json`.
+
+
 
 **Scaled list showed a huge blank gap above row 1 (user-reported, screenshot).**
 - *Symptom:* after Ctrl+Wheel scaling, ~78 rows' worth of dead space between the
@@ -621,74 +732,55 @@ Preserve these. Each is evidenced in `RESEARCH.md`, `PROGRESS.md`, or source com
 
 ## I. Git and Workspace Status
 
-> **The repo is initialized, one commit exists, a remote is configured — but
-> that commit contains only `LICENSE`. Every source file is still untracked.**
-> Re-verified live at the time of writing.
+**Clean and fully published.** This section previously warned that the repo had
+zero commits; that is resolved. Re-verified live **[V]**:
 
-| Property | Value **[V]** |
+| Property | Value |
 |---|---|
 | Branch | `main` |
-| HEAD | `c3961e8` "Initial commit" |
-| **Contents of HEAD** | **`LICENSE` only — 1 file, 21 lines (MIT, (c) 2026 mochibunr)** |
-| Tracked files | **1** (`git ls-files \| wc -l` → `1`) |
-| Untracked | **11 top-level entries**, including all of `src/`, `tests/`, `src-tauri/` |
-| Remote | `origin` → `https://github.com/mochibunr/Fily.git` (fetch + push) |
-| Stashes | none |
-| Staged / modified / deleted | none — nothing is staged |
+| HEAD | `28b566c` Stop search from freezing the window |
+| Commits | **9** |
+| Tracked files | **62** |
+| Working tree | **clean** — nothing staged, modified or untracked |
+| Remote | `origin` -> `https://github.com/mochibunr/Fily.git` |
+| Tag | `v0.1.0` |
+| Release | published 2026-10-11, 3 assets (deb 3.8 MB, rpm 3.8 MB, AppImage 78.5 MB) |
 
-### ⚠ Read this before pushing
-
-The commit named "Initial commit" is misleading. Verified with
-`git show --stat HEAD` and `git ls-tree -r --name-only HEAD`:
+### Commit history
 
 ```
-c3961e8 Initial commit
- LICENSE | 21 +++++++++++++++++++++
+28b566c Stop search from freezing the window: offload long commands off the UI thread
+ec2bbbb Fix preview-panel persistence; type-to-search; faster open and scroll; new icons
+7ca9e47 install.sh: install a prebuilt binary instead of building
+87bab5b Publish prebuilt binaries so users need neither Node nor Rust
+1bf20a9 Add install.sh: one copy-pasteable command builds and installs Fily
+d0f68d1 Make the UI minimal and cut wasted work in the file list
+6647a4d Add CLI/AI configuration: settings file + fily config subcommands
+939ba33 Initial Commit
+c3961e8 Initial commit   (LICENSE only)
 ```
 
-So a `git push` right now would publish **an empty repository containing one
-license file** — no code at all. The 56 source files are still untracked.
+The user asked that every completed change be committed automatically; that is
+now standing practice and is recorded in the global `MEMORY.md`.
 
-### What the next commit would contain
+### Cut a commit, on purpose
 
-`git add -A --dry-run` stages **56 files** **[V]**: all of `src/`, `tests/`,
-`src-tauri/{src,icons,capabilities}`, the four root configs, the four docs, and
-`package-lock.json`. `.gitignore` correctly excludes `node_modules/`, `dist/`,
-and `src-tauri/target/` **[V]** — none appear in the dry run.
+`6647a4d` and `d0f68d1` were rewritten to delete a fabricated
+`Co-Authored-By: Claude Opus 4.8` trailer that had been pushed by mistake, then
+force-pushed with `--force-with-lease`. Content was verified byte-identical
+(matching tree hashes) before pushing. **The current history is clean** — do
+not re-add attribution trailers.
 
-One judgement call: `src-tauri/gen/schemas/` (4 files, ~312 KB) **would be
-committed**. Tauri's own project template gitignores `/gen/schemas` because the
-CLI regenerates it **[V]**. Either add `src-tauri/gen/` to `.gitignore` or
-leave it; both are defensible.
+### Not yet done
 
-### Work that exists only on disk and must be preserved
-
-| Artifact | Location | Note |
-|---|---|---|
-| All source | `/home/mochibunr/Fily/**` | **untracked — not in any commit** **[V]** |
-| Test harnesses | `/tmp/opencode/fily/*.mjs` | **ephemeral**, 14 files, still not in repo **[V]** |
-| Release binary | `~/.local/bin/fily` | md5 `9fb82d80…`, matches fresh build **[V]** |
-| Launcher | `~/.local/share/applications/fily.desktop` | **[V]** |
-| Bundles | `src-tauri/target/release/bundle/` | deb/rpm/AppImage, gitignored **[V]** |
-| Screenshots | `/tmp/opencode/fily/ui/`, `zf-*.png`, `th-*.png`, `gap-*.png` | ephemeral |
-
-### Why this still matters
-
-A commit history exists but contains no code, so:
-
-- **Still effectively no undo** for any source file — a destructive edit is
-  unrecoverable exactly as before.
-- The working tree remains the only copy of every source file.
-- There is no baseline to diff against.
-
-### Recommended next actions
-
-1. **Copy `/tmp/opencode/fily/*.mjs` into the repo first** (§F task 1), before
-   anything can clean `/tmp`. This is the only copy.
-2. **Commit the source.** Decide on `src-tauri/gen/` first. A `git push` before
-   this publishes an empty repo.
-3. Optionally reword the LICENSE-only commit message, or leave it — a two-commit
-   history is harmless.
+- **No CI on `main`.** The only workflow is `.github/workflows/release.yml`,
+  which runs on a `v*` tag. Type checks and tests are still manual (§F).
+- **`origin/main` commit emails are `mochibunr@localhost`**, which GitHub cannot
+  link to an account, so the 7 commits authored locally show as *unlinked* in
+  GitHub's contributor graph. Changing this would rewrite history; it has not
+  been done. Only `c3961e8` carries a real address.
+- The 14 harness scripts are still in `/tmp/opencode/fily/`, outside the repo
+  (§F task 1, still open).
 
 ---
 
@@ -760,38 +852,37 @@ A commit history exists but contains no code, so:
 
 ## L. Handoff Verification
 
-Checks performed before finalising this document **[V]**:
+This document was revised on 2026-10-11 after six further rounds of work
+(minimal UI, prebuilt releases, icons, persistence, type-to-search, and the
+search-freeze fix). What was re-verified, versus what was carried forward:
 
-- **Files referenced** — every path in this document was opened or globbed and
-  confirmed to exist: `README.md`, `RESEARCH.md`, `PROGRESS.md`, `package.json`,
-  `tsconfig.json`, `vite.config.ts`, `.gitignore`, `index.html`,
-  `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`,
-  `src-tauri/capabilities/default.json`, `src-tauri/src/{main,logic,fs_commands,archive_commands,open_commands}.rs`,
-  and all 19 files under `src/`, `src/components/`, `src/utils/`, `src/styles/`
-  plus `tests/utils.test.ts`.
-- **Command claims** — `tsc --noEmit`, `npm run build`, `npx vitest run`,
-  `rustc --test logic.rs`, `rustfmt --check`, `test-ui.mjs`, `gaptest.mjs`,
-  `thumbtest.mjs`, `md5sum` parity, and bundle `ls` were all executed during this
-  inspection; the numbers in §B are their real output, not remembered values.
-- **Implementation status** cross-checked against source, not filenames: the
-  `ROW_H`/`--row-h` pairing, the 26-command handler list, the `localStorage` key
-  inventory, the `iconSize` removal, and the `SettingsModal` section headings were
-  each confirmed by grep or read.
-- **Negative findings** (no ESLint, no CI, `tests/` excluded from tsconfig) were
-  each confirmed by a command, not assumed.
-- **Git state verified live, twice, because it changed mid-task.** §I was
-  written before `git init`, then corrected when the repo appeared, then corrected
-  again when the user committed and added a remote. Final verified state: branch
-  `main`, HEAD `c3961e8` containing only `LICENSE` (confirmed with
-  `git show --stat` and `git ls-tree -r`), 1 tracked file, 11 untracked entries,
-  `origin` → `https://github.com/mochibunr/Fily.git`, 56-file
-  `git add -A --dry-run` **[V]**. Every other place asserting an older git state
-  (§B, §F, §J, §K) was updated in the same pass.
-- **Preservation** — no application source was modified. `README.md` was
-  rewritten (verified: 205 lines, all claims checked against code) and
-  `HANDOFF.md` created/updated. `RESEARCH.md` and all of `src/` are byte-identical
-  to their pre-documentation state.
-- **Not claimed without evidence** — window drag behaviour, Windows runtime
-  behaviour, in-app trash restore, and the resolution of the user's
-  icons-disappearing report are all explicitly marked unverified rather than
-  presented as working.
+**Re-verified during this update [V]**
+
+- **Git state** — `main`, 9 commits, 62 tracked files, clean tree,
+  `origin` set, tag `v0.1.0` present. Confirmed with `git status`,
+  `git ls-files`, `git tag`, `git remote -v`.
+- **Release exists** — queried the GitHub API for the latest release: `v0.1.0`,
+  published 2026-10-11, three assets (rpm 3.8 MB, AppImage 78.5 MB, deb 3.8 MB).
+- **All gates re-run** — `tsc --noEmit` clean, `npm run build` passes,
+  vitest **15/15**, `cargo test` **20/20**, `rustfmt --check` clean, deb 3.90 MiB,
+  installed binary md5 matches a fresh build.
+- **Counts re-derived from source, not remembered** — 29 registered commands
+  (parsed from the `generate_handler!` block), 14 `async fn` + 11 sync,
+  11 settings keys, 22 harness scripts on disk.
+- **Negative findings re-confirmed** — no CI on `main`, no ESLint, `tests/`
+  still outside `tsconfig`.
+
+**Carried forward unchanged [V]** — the safety guarantees (path validation,
+protected targets, zip-slip), search bounds, preview caps, and the scale-related
+coordinate-space invariant, all re-read against source during the rounds that
+touched them.
+
+**Corrected as wrong** — §I previously stated the repo had zero commits and only
+`LICENSE` tracked; that was true when written and is now false. §B previously
+gave vitest 8/8 and cargo 15/15. §E previously said 26 commands. §F previously
+led with "make the first commit" and README staleness, both now done.
+
+**Still honest gaps** — window drag/minimize, Windows runtime, in-app trash
+restore, live CLI re-theme of a running window, and the *felt* smoothness of
+search after the offload fix are all marked unverified rather than working. The
+last one is the one a user is best placed to confirm.

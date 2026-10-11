@@ -184,10 +184,13 @@ export default function FileView({ pane, searchQuery, searchResults, searching, 
     return () => window.clearTimeout(t);
   }, [p?.path, p?.navDir]);
 
-  const base = useMemo(() => {
-    if (searchResults) return searchResults;
-    return sortEntries(p?.entries ?? [], app.prefs.sortKey, app.prefs.sortDesc);
-  }, [p?.entries, searchResults, app.prefs.sortKey, app.prefs.sortDesc]);
+  // Search results are sorted too, not returned in raw walk order. Skipping
+  // this put files and folders in one alphabetical stream, which read as
+  // random — and ignored the user's sort preference while searching.
+  const base = useMemo(
+    () => sortEntries(searchResults ?? p?.entries ?? [], app.prefs.sortKey, app.prefs.sortDesc),
+    [p?.entries, searchResults, app.prefs.sortKey, app.prefs.sortDesc],
+  );
 
   // List window math, hoisted above the thumbnail loader so that loader can
   // see which rows are actually mounted. One screenful + generous buffer on

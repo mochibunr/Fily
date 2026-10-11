@@ -664,6 +664,55 @@ fn delete_permanent_blocking(paths: Vec<String>) -> Result<OpResult, String> {
 // Search
 // ---------------------------------------------------------------------------
 
+/// Directory names that are never worth searching: caches, VCS internals and
+/// dependency trees. Matched exactly (case-insensitively) rather than by
+/// substring, so a project legitimately called `git` is not pruned.
+const NOISE_DIRS: [&str; 10] = [
+    "cache",
+    ".cache",
+    "node_modules",
+    "thumbnails",
+    ".thumbnails",
+    "Trash",
+    ".Trash",
+    "trash",
+    ".git",
+    "snap",
+];
+
+/// Absolute prefixes that are noise regardless of what they are called.
+const NOISE_PREFIXES: [&str; 5] = ["/tmp", "/proc", "/sys", "/dev", "/run"];
+
+/// True when `path` is a subtree the walker should not descend into.
+///
+/// `root` matters: the search root must never be pruned (searching inside
+/// `/tmp` is legitimate), and a noise-prefix rule must not fire when the whole
+/// search is already contained in that prefix.
+fn is_search_noise(path: &Path, root: &Path) -> bool {
+    if path == root {
+        return false;
+    }
+    let s = path.to_string_lossy();
+    let root_s = root.to_string_lossy();
+    // Only prune by absolute prefix when the search itself is not under it.
+    if NOISE_PREFIXES.iter().any(|p| s.starts_with(p))
+        && !NOISE_PREFIXES.iter().any(|p| root_s.starts_with(p))
+    {
+        return true;
+    }
+    // Prune when any component strictly below the root is a known noise dir.
+    // This covers descendants of the root as well as the directory itself,
+    // since for `root/.cache` the relative path is just ".cache".
+    match path.strip_prefix(root) {
+        Ok(rel) => rel.components().any(|c| {
+            let name = c.as_os_str().to_string_lossy();
+            NOISE_DIRS.iter().any(|d| name.eq_ignore_ascii_case(d))
+        }),
+        // Outside the root entirely: leave the prefix rules above to decide.
+        Err(_) => false,
+    }
+}
+
 fn matches_search(path: &Path, entry: &FileEntry, opts: &SearchOptions, q: &str) -> bool {
     if !logic::name_matches(&entry.name, q) {
         return false;
@@ -726,10 +775,16 @@ fn search_dir_blocking(dir: String, options: SearchOptions) -> Result<Vec<FileEn
         .max_depth
         .unwrap_or(if options.recursive { 8 } else { 1 });
     let depth = if options.recursive { max_depth } else { 1 };
+    let noise_root = root.clone();
     let walker = walkdir::WalkDir::new(&root)
         .max_depth(depth)
         .follow_links(false)
-        .into_iter();
+        .into_iter()
+        // Prune whole subtrees that never contain anything a person is
+        // looking for. `.cache` under $HOME alone can hold tens of thousands
+        // of files, and walking them burns the whole result budget on noise
+        // that then buries the real matches.
+        .filter_entry(move |e| !is_search_noise(e.path(), &noise_root));
     let mut out = Vec::new();
     let mut visited = 0usize;
     for item in walker.filter_map(|e| e.ok()) {
@@ -757,7 +812,13 @@ fn search_dir_blocking(dir: String, options: SearchOptions) -> Result<Vec<FileEn
             out.push(entry);
         }
     }
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    // Folders first, then by name — the same order the list view uses, so a
+    // search reads like a folder listing rather than an interleaved mess.
+    out.sort_by(|a, b| {
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
     Ok(out)
 }
 
@@ -1279,6 +1340,99 @@ mod tests {
         assert_eq!(entries.len(), 2);
         assert!(entries.iter().any(|e| e.is_dir && e.name == "sub"));
         assert!(entries.iter().any(|e| !e.is_dir && e.name == "one.txt"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn search_skips_cache_and_node_modules() {
+        let dir = tmpdir("noise");
+        fs::create_dir_all(dir.join(".cache/deep/deeper")).unwrap();
+        fs::write(dir.join(".cache/needle1.txt"), "a").unwrap();
+        fs::write(dir.join(".cache/deep/deeper/needle2.txt"), "a").unwrap();
+        fs::create_dir_all(dir.join("node_modules/pkg")).unwrap();
+        fs::write(dir.join("node_modules/pkg/needle3.txt"), "a").unwrap();
+        fs::write(dir.join("needle-real.txt"), "a").unwrap();
+
+        let hits = search_dir_blocking(dir.to_string_lossy().into_owned(), opts("needle")).unwrap();
+        let names: Vec<&str> = hits.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["needle-real.txt"], "noise leaked: {names:?}");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn search_does_not_walk_tmp_or_proc() {
+        let dir = tmpdir("prefix");
+        fs::write(dir.join("keep.txt"), "a").unwrap();
+        // Pruning by absolute prefix must NOT fire when the search root is
+        // itself under that prefix: these temp dirs are, and an earlier
+        // version of this rule pruned the root and returned zero results.
+        assert!(
+            !is_search_noise(&dir, &dir),
+            "a root under /tmp must not prune itself"
+        );
+        assert!(
+            !is_search_noise(&dir.join("keep.txt"), &dir),
+            "a real file below the root must not be pruned"
+        );
+        assert!(
+            is_search_noise(Path::new("/proc/1"), Path::new("/")),
+            "/proc must be pruned when searching from /"
+        );
+        assert!(
+            !is_search_noise(Path::new("/"), Path::new("/")),
+            "root must never be pruned"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn noise_pruning_respects_the_search_root() {
+        let dir = tmpdir("root-scope");
+        // The search root itself may legitimately be called .cache.
+        let root = dir.join(".cache");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("inside.txt"), "a").unwrap();
+        let hits =
+            search_dir_blocking(root.to_string_lossy().into_owned(), opts("inside")).unwrap();
+        assert_eq!(hits.len(), 1, "searching inside .cache must still work");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn search_results_put_folders_first() {
+        let dir = tmpdir("dirfirst");
+        fs::write(dir.join("aaa.txt"), "a").unwrap();
+        fs::write(dir.join("zzz.txt"), "a").unwrap();
+        fs::create_dir_all(dir.join("mmm")).unwrap();
+        fs::create_dir_all(dir.join("bbb")).unwrap();
+
+        let hits = search_dir_blocking(dir.to_string_lossy().into_owned(), opts("")).unwrap();
+        let kinds: Vec<(&str, bool)> = hits.iter().map(|e| (e.name.as_str(), e.is_dir)).collect();
+        // Folders (mmm, bbb) ahead of files (aaa, zzz) despite the alphabet.
+        assert_eq!(
+            kinds,
+            vec![
+                ("bbb", true),
+                ("mmm", true),
+                ("aaa.txt", false),
+                ("zzz.txt", false)
+            ],
+            "folders must come first: {kinds:?}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn search_is_case_insensitive_for_uppercase_queries() {
+        let dir = tmpdir("upper");
+        fs::write(dir.join("Report.PDF"), "a").unwrap();
+        fs::write(dir.join("holiday.jpeg"), "a").unwrap();
+        let p = dir.to_string_lossy().into_owned();
+        for q in ["report", "REPORT", "RePoRt", "HOLIDAY"] {
+            let hits = search_dir_blocking(p.clone(), opts(q)).unwrap();
+            assert_eq!(hits.len(), 1, "query {q} matched {:?}", hits.len());
+        }
         let _ = fs::remove_dir_all(&dir);
     }
 }
