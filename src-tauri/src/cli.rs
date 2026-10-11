@@ -39,6 +39,8 @@ SETTINGS:
     sidebarCollapsed            true | false
     showDevices                 true | false
     showPlaces                  true | false
+    previewVisible              true | false
+    dual                        true | false
     toolbar                     JSON object, e.g. '{\"terminal\":false}'
 
 EXAMPLES:

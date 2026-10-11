@@ -88,5 +88,7 @@ export interface FilySettings {
   sidebarCollapsed: boolean;
   showDevices: boolean;
   showPlaces: boolean;
+  previewVisible: boolean;
+  dual: boolean;
   toolbar: Record<string, boolean>;
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { baseName, formatDate, formatSize, joinPath, parentDir, splitPath } from "../src/utils/format";
 import { parseSearchQuery, parseSizeToken, toSearchOptions } from "../src/utils/search";
+import { naturalCompare, plainCompare } from "../src/utils/sort";
 
 describe("formatSize", () => {
   it("formats bytes", () => {
@@ -53,5 +54,41 @@ describe("search parser", () => {
   it("clamps absurd queries", () => {
     const big = "x".repeat(10000);
     expect(toSearchOptions(big).query.length).toBeLessThanOrEqual(200);
+  });
+});
+
+describe("naturalCompare", () => {
+  it("orders embedded numbers numerically", () => {
+    const in_ = ["f10.txt", "f2.txt", "f1.txt", "f20.txt"].sort(naturalCompare);
+    expect(in_).toEqual(["f1.txt", "f2.txt", "f10.txt", "f20.txt"]);
+  });
+  it("is case insensitive but deterministic", () => {
+    expect(naturalCompare("Apple", "apple")).toBeLessThan(0);
+    expect(naturalCompare("apple", "Banana")).toBeLessThan(0);
+  });
+  it("handles mixed runs", () => {
+    const in_ = ["chapter-2-part-10", "chapter-2-part-2", "chapter-10-part-1"].sort(naturalCompare);
+    expect(in_).toEqual(["chapter-2-part-2", "chapter-2-part-10", "chapter-10-part-1"]);
+  });
+  it("is a total order (never returns 0 for different strings)", () => {
+    const pairs: [string, string][] = [["a", "A"], ["01", "1"], ["x2", "x02"]];
+    for (const [a, b] of pairs) expect(naturalCompare(a, b)).not.toBe(0);
+  });
+  it("matches ICU natural ordering", () => {
+    // The point of the rewrite: identical results, far faster.
+    const names = ["img12.png", "img2.png", "Img3.png", "a.txt", "b-10.tar.gz", "b-9.tar.gz"];
+    const fast = [...names].sort(naturalCompare);
+    const icu = [...names].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+    expect(fast).toEqual(icu);
+  });
+});
+
+describe("plainCompare", () => {
+  it("compares case-insensitively", () => {
+    expect(plainCompare("B", "a")).toBeGreaterThan(0);
+    expect(plainCompare("a", "b")).toBeLessThan(0);
+  });
+  it("is 0 only for identical strings", () => {
+    expect(plainCompare("same", "same")).toBe(0);
   });
 });

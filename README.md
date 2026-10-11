@@ -56,7 +56,9 @@ is on screen unless it earns its place — search collapses to a bare magnifier
 until you use it, sorting lives in one toolbar menu, and the item/selection count
 lives in the status bar rather than a row of its own.
 
-- Command palette (`Ctrl+K`) and a complete keyboard map.
+- Command palette (`Ctrl+K`) and a complete keyboard map. Typing any
+  letter outside a text field jumps straight into search, the way Finder
+  and Nautilus do.
 - 9 themes: light, dark, Dracula, Catppuccin Mocha, Catppuccin Latte, Nord,
   Gruvbox, Tokyo Night, One Dark.
 - Whole-app UI scale (`Ctrl` `+` / `-` / `0`), and independent scaling of the
@@ -103,6 +105,7 @@ Enforced in the backend, not merely hidden in the UI:
 |---|---|
 | `Ctrl+K` | Command palette |
 | `Ctrl+F` | Focus search |
+| any letter | Type-to-search — starts a search from anywhere |
 | `Ctrl+L` | Type a path / location bar |
 | `Ctrl+1` / `Ctrl+2` | List view / grid view |
 | `Ctrl+T` | New tab at current path |
@@ -263,6 +266,8 @@ Settings file: `~/.config/fily/settings.json` (override with `FILY_CONFIG_DIR`).
 | `sidebarCollapsed` | bool | `true` / `false` |
 | `showDevices` | bool | show the Devices section |
 | `showPlaces` | bool | show the Places section |
+| `previewVisible` | bool | preview panel shown at launch |
+| `dual` | bool | dual-pane mode |
 | `toolbar` | object | e.g. `{"newFolder":true,"terminal":false}` |
 
 **Changes apply live.** A background watcher notices edits to the file and the

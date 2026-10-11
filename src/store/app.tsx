@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { DirViewPrefs, FileEntry, FilySettings, SortKey, TabState, Theme } from "../types";
 import { fsApi, onSettingsChanged } from "../api/fs";
+import { naturalCompare, plainCompare } from "../utils/sort";
 
 export interface Toast {
   id: number;
@@ -159,8 +160,8 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
     return (saved && known.includes(saved) ? saved : "dark") as Theme;
   });
   const [sidebarCollapsed, setSidebarCollapsedState] = useState(false);
-  const [previewVisible, setPreviewVisible] = useState(true);
-  const [dual, setDual] = useState(false);
+  const [previewVisible, setPreviewVisibleState] = useState(true);
+  const [dual, setDualState] = useState(false);
   const [focusPane, setFocusPane] = useState(0);
   const [panes, setPanes] = useState<Pane[]>([emptyPane(initialPath)]);
   const [tabs, setTabs] = useState<TabState[]>([{ id: 0, path: initialPath, history: [initialPath], histIndex: 0 }]);
@@ -211,6 +212,8 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
     setSideWidthState(s.sideWidth);
     setShowDevicesState(s.showDevices);
     setShowPlacesState(s.showPlaces);
+    setPreviewVisibleState(s.previewVisible);
+    setDualState(s.dual);
     setToolbarBtns((t) => ({ ...t, ...s.toolbar }));
   }, []);
 
@@ -233,6 +236,8 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
             sidebarCollapsed,
             showDevices,
             showPlaces,
+            previewVisible,
+            dual,
             toolbar: toolbarBtns,
           });
         }
@@ -277,6 +282,8 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
         sidebarCollapsed,
         showDevices,
         showPlaces,
+        previewVisible,
+        dual,
         toolbar: toolbarBtns,
       })
       .catch(() => {});
@@ -289,6 +296,8 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
     sidebarCollapsed,
     showDevices,
     showPlaces,
+    previewVisible,
+    dual,
     toolbarBtns,
   ]);
 
@@ -351,6 +360,12 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
   const setSidebarCollapsed = useCallback((v: boolean) => {
     setSidebarCollapsedState(v);
   }, []);
+  const setPreviewVisible = useCallback((v: boolean) => {
+    setPreviewVisibleState(v);
+  }, []);
+  const setDual = useCallback((v: boolean) => {
+    setDualState(v);
+  }, []);
 
   const setListScale = useCallback((v: number) => {
     const clamped = Math.min(1.6, Math.max(0.8, Math.round(v * 100) / 100));
@@ -403,6 +418,8 @@ export function AppProvider({ children, initialPath }: { children: React.ReactNo
     setToolbarBtns({ ...DEFAULT_TOOLBAR });
     setShowDevicesState(true);
     setShowPlacesState(true);
+    setPreviewVisibleState(true);
+    setDualState(false);
     setSidebarCollapsed(false);
     // Reset the shared file too, so `fily config list` agrees with the UI.
     void fsApi.resetSettings().catch(() => {});
@@ -622,16 +639,16 @@ export function sortEntries(entries: FileEntry[], sortKey: SortKey, desc: boolea
   const sign = desc ? -1 : 1;
   switch (sortKey) {
     case "name":
-      arr.sort((a, b) => dirFirst(a, b) || sign * a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+      arr.sort((a, b) => dirFirst(a, b) || sign * naturalCompare(a.name, b.name));
       break;
     case "size":
-      arr.sort((a, b) => dirFirst(a, b) || sign * (a.size - b.size) || a.name.localeCompare(b.name));
+      arr.sort((a, b) => dirFirst(a, b) || sign * (a.size - b.size) || naturalCompare(a.name, b.name));
       break;
     case "modified":
       arr.sort((a, b) => dirFirst(a, b) || sign * ((a.modified ?? 0) - (b.modified ?? 0)));
       break;
     case "type":
-      arr.sort((a, b) => dirFirst(a, b) || sign * a.extension.localeCompare(b.extension) || a.name.localeCompare(b.name, undefined, { numeric: true }));
+      arr.sort((a, b) => dirFirst(a, b) || sign * plainCompare(a.extension, b.extension) || naturalCompare(a.name, b.name));
       break;
   }
   return arr;

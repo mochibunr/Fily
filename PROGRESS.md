@@ -126,6 +126,33 @@
       `.action-row`/`.selection-note` to the status bar and the new sort
       button), plus a new 6-check minimal-UI suite and a 2-check thumbnail-lazy
       suite.
+- [x] Round 16 (icons, scrolling, persistence, type-to-search): four reported
+      problems and two perf wins.
+      **Preview panel did not persist.** `previewVisible` (and `dual`) were
+      plain `useState` with no storage at all, so turning the panel off was lost
+      on quit — exactly as reported. Both are now first-class settings, written
+      to and read from `~/.config/fily/settings.json` and settable from the CLI.
+      **Type-to-search.** A printable key outside any field seeds the search
+      box and focuses it; later keystrokes then land natively. An accumulator
+      was tried first and removed: focusing the box makes the next key look
+      like "already typing", so it never grew past one character.
+      **Folder opening was sort-bound.** `localeCompare(name, undefined,
+      {numeric: true})` costs ~211 ms to order 6000 filenames and runs on every
+      navigation. Replaced with a hand-rolled natural compare — **211 ms →
+      12.9 ms (16x) with zero ordering differences** against ICU across 6000
+      names, pinned by a test.
+      **Scrolling.** `overflow-anchor: none` on the list: the browser was
+      compensating for virtualized rows mounting above the viewport and nudging
+      scrollTop, which showed as jitter. Worst scroll frame **46 ms → 27 ms**.
+      **Icons.** 14 → 24 glyphs and ~120 → 165 extensions. Config (gear),
+      terminal (prompt), database (cylinder), markdown (M-down), keys (padlock),
+      certs (shield), 3D (cube), ebooks (book), disk images (disc), binaries
+      (chip) and torrents (cloud) no longer share a generic document. Folders
+      get a name-based accent — `photos/` and `src/` are distinguishable from
+      `Documents/` without statting children. Verified by rendering the real
+      map and eyeballing every icon.
+      Tests: vitest 8 → 15 (natural ordering vs ICU, case tiebreak), new 6-check
+      feature suite, existing suites unchanged (27/27, 7/7, 4/4, 6/6, 2/2, 4/4).
 - [x] Round 8 (menu key + scroll memory): F10 / Menu key pops the context
       menu anchored at the selected row; per-directory scroll offsets
       remembered (capped at 100) and restored after Back/Forward/mouse

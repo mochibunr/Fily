@@ -37,7 +37,7 @@ pub const TOOLBAR_KEYS: [&str; 7] = [
 ];
 
 /// Every settable key, used for validation and for `config list` output.
-pub const KEYS: [&str; 9] = [
+pub const KEYS: [&str; 11] = [
     "theme",
     "uiZoom",
     "listScale",
@@ -46,6 +46,8 @@ pub const KEYS: [&str; 9] = [
     "sidebarCollapsed",
     "showDevices",
     "showPlaces",
+    "previewVisible",
+    "dual",
     "toolbar",
 ];
 
@@ -80,6 +82,11 @@ pub struct FilySettings {
     pub sidebar_collapsed: bool,
     pub show_devices: bool,
     pub show_places: bool,
+    /// Preview panel visibility. This was never persisted, so turning the panel
+    /// off did not survive a restart.
+    pub preview_visible: bool,
+    /// Dual-pane mode, same problem as `preview_visible`.
+    pub dual: bool,
     pub toolbar: BTreeMap<String, bool>,
 }
 
@@ -94,6 +101,8 @@ impl Default for FilySettings {
             sidebar_collapsed: false,
             show_devices: true,
             show_places: true,
+            preview_visible: true,
+            dual: false,
             toolbar: BTreeMap::from([
                 ("newFolder".into(), false),
                 ("newFile".into(), false),
@@ -231,6 +240,8 @@ pub fn apply_patch(patch: &Value) -> Result<FilySettings, String> {
             "sidebarCollapsed" => s.sidebar_collapsed = want_bool(v, key)?,
             "showDevices" => s.show_devices = want_bool(v, key)?,
             "showPlaces" => s.show_places = want_bool(v, key)?,
+            "previewVisible" => s.preview_visible = want_bool(v, key)?,
+            "dual" => s.dual = want_bool(v, key)?,
             "toolbar" => {
                 let t = v
                     .as_object()

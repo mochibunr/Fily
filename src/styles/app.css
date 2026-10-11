@@ -380,6 +380,10 @@ button.mini-btn, .mini-btn {
   outline: none;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  /* Scroll anchoring fights virtualization: when a window of rows mounts or
+     unmounts above the viewport the browser "compensates" by nudging
+     scrollTop, which shows up as jitter while flinging through a list. */
+  overflow-anchor: none;
 }
 /* Slim themed scrollbars */
 .file-scroll::-webkit-scrollbar,

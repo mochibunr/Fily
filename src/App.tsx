@@ -90,6 +90,7 @@ function Shell() {
   const searchFor = (pane: number): SearchState =>
     searches[pane] ?? { query: "", results: null, searching: false };
 
+
   // ---- global shortcuts ----
   useEffect(() => {
     // Mouse side buttons: back / forward through folder history.
@@ -109,6 +110,21 @@ function Shell() {
       if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); setPalette(true); return; }
       if (typing) {
         if (e.key === "Escape") (document.activeElement as HTMLElement)?.blur();
+        return;
+      }
+      // Type-to-search: a printable key typed outside any field starts a
+      // search. Only the FIRST character is handled — it focuses the box and
+      // seeds the query, and every later keystroke then lands in the focused
+      // input natively. An accumulator here would never grow past one
+      // character, because focusing the box makes the next key look like
+      // "already typing".
+      if (
+        !mod && !e.altKey && e.key.length === 1 &&
+        e.key !== " " && /\S/.test(e.key)
+      ) {
+        e.preventDefault();
+        document.querySelector<HTMLInputElement>(".search-box input")?.focus();
+        window.dispatchEvent(new CustomEvent("fily:type-search", { detail: e.key }));
         return;
       }
       if (mod && e.key.toLowerCase() === "f") {

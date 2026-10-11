@@ -21,6 +21,20 @@ export type GlyphKind =
   | "doc-archive"
   | "doc-package"
   | "doc-generic"
+  | "doc-config"
+  | "doc-markdown"
+  | "doc-terminal"
+  | "doc-database"
+  | "doc-lock"
+  | "doc-shield"
+  | "doc-cube"
+  | "doc-book"
+  | "doc-disc"
+  | "doc-binary"
+  | "doc-cloud"
+  | "folder-code"
+  | "folder-image"
+  | "folder-open"
   | "link";
 
 const DOC_BODY =
@@ -150,6 +164,166 @@ function GlyphSvg({ kind }: { kind: GlyphKind }) {
           <path d={DOC_BODY} fill="currentColor" />
           <path d={DOC_FOLD} fill={W} opacity={0.42} />
           <path d="M8.4 13.4h7.2v1.8H8.4zM8.4 16.6h7.2v1.8H8.4zM8.4 19.8h4.2v1.4H8.4z" fill={W} opacity={0.9} />
+        </>
+      );
+    case "doc-config":
+      return (
+        <>
+          <path d={DOC_BODY} fill="currentColor" />
+          <path d={DOC_FOLD} fill={W} opacity={0.42} />
+          <path
+            d="M12 12.6a2.1 2.1 0 1 0 0 4.2 2.1 2.1 0 0 0 0-4.2zm8.3 2.1a8.4 8.4 0 0 0-5.6-5.5v1.7a2.1 2.1 0 0 1 1.2 2.8 2.1 2.1 0 0 1-2.8 1.2 2.1 2.1 0 0 1-2.8-1.2 2.1 2.1 0 0 1 1.2-2.8v-1.7a8.4 8.4 0 0 0-5.6 5.5h1.7a2.1 2.1 0 0 1 1.5-2.7v-1.5a6.7 6.7 0 0 1 8.4 0v1.5a2.1 2.1 0 0 1 1.5 2.7z"
+            fill={W}
+          />
+          <circle cx="12" cy="14.7" r="1.5" fill="currentColor" />
+        </>
+      );
+    case "doc-markdown":
+      return (
+        <>
+          <path d={DOC_BODY} fill="currentColor" />
+          <path d={DOC_FOLD} fill={W} opacity={0.42} />
+          <path
+            d="M7.8 12.4v7.4h1.7v-4.5l2.1 2.9 2.1-2.9v4.5h1.7v-7.4h-1.7L12 15l-2.5-2.6zM16.6 12.4h1.5v5.2h2.3v1.5h-3.8z"
+            fill={W}
+          />
+        </>
+      );
+    case "doc-terminal":
+      return (
+        <>
+          <path d={DOC_BODY} fill="currentColor" />
+          <path d={DOC_FOLD} fill={W} opacity={0.42} />
+          <path
+            d="M7.9 13.4l3 2.7-3 2.7M12.6 19.2h3.6"
+            fill="none"
+            stroke={W}
+            strokeWidth={1.7}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </>
+      );
+    case "doc-database":
+      return (
+        <>
+          <ellipse cx="12" cy="7.6" rx="7.2" ry="3.1" fill="currentColor" />
+          <path
+            d="M4.8 7.6v8.8c0 1.71 3.22 3.1 7.2 3.1s7.2-1.39 7.2-3.1V7.6c0 1.71-3.22 3.1-7.2 3.1S4.8 9.31 4.8 7.6z"
+            fill="currentColor"
+          />
+          <ellipse cx="12" cy="7.6" rx="7.2" ry="3.1" fill="currentColor" />
+          <path
+            d="M4.8 12.1c0 1.71 3.22 3.1 7.2 3.1s7.2-1.39 7.2-3.1M4.8 16.4c0 1.71 3.22 3.1 7.2 3.1s7.2-1.39 7.2-3.1"
+            fill="none"
+            stroke={W}
+            strokeWidth={1.5}
+            opacity={0.55}
+          />
+        </>
+      );
+    case "doc-lock":
+      return (
+        <>
+          <path d={DOC_BODY} fill="currentColor" />
+          <path d={DOC_FOLD} fill={W} opacity={0.42} />
+          <path
+            d="M9.4 14.6V13a2.6 2.6 0 0 1 5.2 0v1.6h.5a1 1 0 0 1 1 1v4.2a1 1 0 0 1-1 1H8.9a1 1 0 0 1-1-1v-4.2a1 1 0 0 1 1-1zm1.5 0h2.2V13a1.1 1.1 0 0 0-2.2 0z"
+            fill={W}
+          />
+        </>
+      );
+    case "doc-shield":
+      return (
+        <>
+          <path d={DOC_BODY} fill="currentColor" />
+          <path d={DOC_FOLD} fill={W} opacity={0.42} />
+          <path d="M12 11.6l6.4 2.2v4c0 3.3-2.5 6.2-6.4 7.6-3.9-1.4-6.4-4.3-6.4-7.6v-4z" fill={W} />
+          <path d="M12 12.6l4.9 1.7v3.5c0 2.4-1.8 4.5-4.9 5.7z" fill="currentColor" opacity={0.25} />
+        </>
+      );
+    case "doc-cube":
+      return (
+        <>
+          <path d="M12 2.9l8.6 4.6v9L12 21.1 3.4 16.5v-9z" fill="currentColor" />
+          <path
+            d="M12 2.9l8.6 4.6L12 12.1 3.4 7.5zm0 9.2v9M3.4 7.5v9L12 21.1l8.6-4.6v-9"
+            fill="none"
+            stroke={W}
+            strokeWidth={1.5}
+            strokeLinejoin="round"
+            opacity={0.9}
+          />
+        </>
+      );
+    case "doc-book":
+      return (
+        <>
+          <path d={DOC_BODY} fill="currentColor" />
+          <path d={DOC_FOLD} fill={W} opacity={0.42} />
+          <path
+            d="M12 13.6c-1.2-1-2.6-1.4-4.4-1.2v7c1.8-.2 3.2.2 4.4 1.2 1.2-1 2.6-1.4 4.4-1.2v-7c-1.8-.2-3.2.2-4.4 1.2zm0 0V7.4c-1.2-1-2.6-1.4-4.4-1.2v7c1.8-.2 3.2.2 4.4 1.2z"
+            fill={W}
+          />
+        </>
+      );
+    case "doc-disc":
+      return (
+        <>
+          <circle cx="12" cy="12" r="9.1" fill="currentColor" />
+          <circle cx="12" cy="12" r="6.4" fill="none" stroke={W} strokeWidth={1.4} opacity={0.45} />
+          <circle cx="12" cy="12" r="3.4" fill="none" stroke={W} strokeWidth={1.4} opacity={0.45} />
+          <circle cx="12" cy="12" r="1.5" fill={W} />
+        </>
+      );
+    case "doc-binary":
+      return (
+        <>
+          <path d={DOC_BODY} fill="currentColor" />
+          <path d={DOC_FOLD} fill={W} opacity={0.42} />
+          <rect x="7.2" y="11.4" width="9.6" height="9.2" rx="1.4" fill="none" stroke={W} strokeWidth={1.6} />
+          <path d="M9.8 13.6h1.3v1.3H9.8zm3.1 0h1.3v1.3h-1.3zM9.8 16.4h1.3v1.3H9.8zm3.1 0h1.3v1.3h-1.3z" fill={W} />
+          <path d="M10 9.2V7.8M12 9.2V6.9M14 9.2V8.3" stroke={W} strokeWidth={1.5} strokeLinecap="round" />
+        </>
+      );
+    case "doc-cloud":
+      return (
+        <>
+          <path d={DOC_BODY} fill="currentColor" />
+          <path d={DOC_FOLD} fill={W} opacity={0.42} />
+          <path
+            d="M8.1 19.6a3.1 3.1 0 0 1-.3-6.2 4.2 4.2 0 0 1 8-1.2 2.9 2.9 0 0 1-.5 5.8v1.6z"
+            fill={W}
+          />
+          <path d="M11.4 16.2v-3.3m0 0l-1.5 1.5m1.5-1.5l1.5 1.5" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+        </>
+      );
+    case "folder-code":
+      return (
+        <>
+          <path
+            d="M2.8 7.4A2.8 2.8 0 0 1 5.6 4.6h3.6c.85 0 1.66.4 2.17 1.08l1.1 1.5h6.97a2.8 2.8 0 0 1 2.8 2.8v8.62a2.8 2.8 0 0 1-2.8 2.8H5.6a2.8 2.8 0 0 1-2.8-2.8z"
+            fill="currentColor"
+          />
+          <path
+            d="M10.4 12.2l-2.3 2.6 2.3 2.6M13.6 12.2l2.3 2.6-2.3 2.6"
+            fill="none"
+            stroke={W}
+            strokeWidth={1.7}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </>
+      );
+    case "folder-image":
+      return (
+        <>
+          <path
+            d="M2.8 7.4A2.8 2.8 0 0 1 5.6 4.6h3.6c.85 0 1.66.4 2.17 1.08l1.1 1.5h6.97a2.8 2.8 0 0 1 2.8 2.8v8.62a2.8 2.8 0 0 1-2.8 2.8H5.6a2.8 2.8 0 0 1-2.8-2.8z"
+            fill="currentColor"
+          />
+          <circle cx="9" cy="12.7" r="1.5" fill={W} />
+          <path d="M7.4 18.9l3.4-4 2.2 2.4 1.8-1.9 2.4 3.5z" fill={W} />
         </>
       );
     case "link":

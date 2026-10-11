@@ -43,6 +43,18 @@ export default function Toolbar({ pane, onSearch }: { pane: number; onSearch(q: 
     window.addEventListener("fily:edit-location", onEdit);
     return () => window.removeEventListener("fily:edit-location", onEdit);
   }, [pane, p?.path]);
+  // Type-to-search: App dispatches the accumulated term; put it in the box.
+  useEffect(() => {
+    const onType = (e: Event) => {
+      const term = (e as CustomEvent<string>).detail;
+      if (!term) return;
+      setQ(term);
+      onSearch(term);
+    };
+    window.addEventListener("fily:type-search", onType);
+    return () => window.removeEventListener("fily:type-search", onType);
+  }, [onSearch]);
+
   if (!p) return null;
   const parts = splitPath(p.path);
   const tb = app.toolbarBtns;

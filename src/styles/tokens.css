@@ -46,6 +46,17 @@
   --ext-exec: #6b6b66;
   --ext-folder: #5b8dd9;
   --ext-link: #8a8a84;
+  /* New families so kinds are told apart by hue as well as by emblem. */
+  --ext-config: #7fb800;
+  --ext-data: #0f9bb5;
+  --ext-cube: #c76fd0;
+  --ext-shield: #4aa3d8;
+  --ext-book: #c2683c;
+  --ext-disc: #6f7bd8;
+  --ext-term: #3fa66a;
+  --ext-cert: #d4a017;
+  --ext-cloud: #5f9ea0;
+  --ext-mark: #5b6ee1;
 }
 
 [data-theme="light"] {
