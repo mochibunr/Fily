@@ -158,15 +158,22 @@ npm install
 npm run tauri build
 ```
 
-Or let the installer do the whole thing — it checks prerequisites, builds, and
-sets up a launcher and icon:
+Or use the installer, which picks the right method for your system — a package
+install where one exists, otherwise a drop into `~/.local`:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mochibunr/Fily/main/install.sh | bash
 ```
 
-Already cloned? Just run `./install.sh`. It is safe to re-run and stops with
-clear instructions if a prerequisite is missing rather than installing half-way.
+| Flag | Effect |
+|---|---|
+| *(none)* | Install the prebuilt binary — no Node.js or Rust needed |
+| `--local` | Same, but always into `~/.local`; never calls `sudo` |
+| `--build` | Build from source instead (requires Node.js + Rust) |
+| `--version` | Print which version and assets would be installed |
+
+It is safe to re-run and stops with clear instructions rather than installing
+half-way.
 
 ### Prerequisites
 
